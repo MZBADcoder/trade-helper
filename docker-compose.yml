@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trader_helper}
+      POSTGRES_USER: ${POSTGRES_USER:-trader_helper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trader_helper}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: ./backend
+    command: celery -A app.core.celery_app worker -l INFO
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      - postgres
+      - redis
+
+  beat:
+    build:
+      context: ./backend
+    command: celery -A app.core.celery_app beat -l INFO
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      - postgres
+      - redis
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+
