@@ -5,7 +5,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.dto.market_data import MarketBarOut
+from app.api.v1.dto.market_data import MarketBarOut
 from app.application.market_data.service import DefaultMarketDataApplicationService
 from app.core.config import settings
 from app.domain.market_data.schemas import MarketBar

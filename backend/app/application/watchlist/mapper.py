@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.api.dto.watchlist import WatchlistItemCreate, WatchlistItemOut
+from app.api.v1.dto.watchlist import WatchlistItemCreate, WatchlistItemOut
 from app.domain.watchlist.schemas import WatchlistItem, WatchlistItemIn
 
 

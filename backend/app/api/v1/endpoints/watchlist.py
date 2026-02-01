@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.application.watchlist.service import DefaultWatchlistApplicationService
-from app.api.dto.watchlist import WatchlistItemCreate, WatchlistItemOut
+from app.api.v1.dto.watchlist import WatchlistItemCreate, WatchlistItemOut
 from app.application.market_data.service import DefaultMarketDataApplicationService
 from app.core.config import settings
 from app.infrastructure.clients.polygon import PolygonClient
