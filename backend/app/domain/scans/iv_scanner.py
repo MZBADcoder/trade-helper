@@ -12,6 +12,4 @@ class ScanResult:
 
 
 def scan_iv_for_ticker(*, ticker: str) -> list[ScanResult]:
-    # Placeholder: wire Polygon options endpoints + your percentile logic here.
-    return []
-
+    raise NotImplementedError("iv scanner not implemented")

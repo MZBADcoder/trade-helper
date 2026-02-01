@@ -1,13 +1,13 @@
 from fastapi import APIRouter
 
-from app.db.session import db
-from app.schemas.alerts import AlertOut
+from app.application.alerts.service import DefaultAlertsApplicationService
+from app.api.dto.alerts import AlertOut
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[AlertOut])
 def list_alerts(limit: int = 50) -> list[AlertOut]:
-    alerts = db.alerts_list(limit=limit)
+    service = DefaultAlertsApplicationService()
+    alerts = service.list_alerts(limit=limit)
     return [AlertOut(**alert) for alert in alerts]
-

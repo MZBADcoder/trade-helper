@@ -1,8 +1,13 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BASE_DIR / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "dev"
     app_secret_key: str = "change-me"
@@ -12,10 +17,10 @@ class Settings(BaseSettings):
     postgres_db: str = "trader_helper"
     postgres_user: str = "trader_helper"
     postgres_password: str = "trader_helper"
-    postgres_host: str = "postgres"
+    postgres_host: str = "localhost"
     postgres_port: int = 5432
 
-    redis_url: str = "redis://redis:6379/0"
+    redis_url: str = "redis://localhost:6379/0"
 
     feishu_webhook_url: str | None = None
     smtp_host: str | None = None
@@ -36,4 +41,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

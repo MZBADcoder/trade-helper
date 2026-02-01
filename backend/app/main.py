@@ -1,13 +1,22 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.db.init_db import init_db
+from app.infrastructure.db.init_db import init_db
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
 
 
 def create_app() -> FastAPI:
-    application = FastAPI(title="Trader Helper API", version="0.1.0")
+    application = FastAPI(title="Trader Helper API", version="0.1.0", lifespan=lifespan)
 
     application.add_middleware(
         CORSMiddleware,  # type: ignore[arg-type]
@@ -19,12 +28,11 @@ def create_app() -> FastAPI:
 
     application.include_router(api_router, prefix="/api/v1")
 
-    @application.on_event("startup")
-    def _startup() -> None:
-        init_db()
-
     return application
 
 
 app = create_app()
 
+
+if __name__ == "__main__":
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
