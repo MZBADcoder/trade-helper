@@ -12,8 +12,10 @@ class WatchlistItemModel(Base):
     __tablename__ = "watchlist_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    ticker: Mapped[str] = mapped_column(String(16), unique=True, index=True, nullable=False)
+    ticker: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("ticker", name="uq_watchlist_items_ticker"),)
 
 
 class MarketBarModel(Base):
