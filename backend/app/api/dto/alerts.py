@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pydantic import BaseModel
 
 
@@ -8,4 +10,3 @@ class AlertOut(BaseModel):
     priority: str
     message: str
     created_at: str | None = None
-

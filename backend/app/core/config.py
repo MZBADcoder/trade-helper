@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     app_secret_key: str = "change-me"
 
     polygon_api_key: str | None = None
+    market_data_daily_lookback_days: int = 730
+    market_data_intraday_lookback_days: int = 5
 
     postgres_db: str = "trader_helper"
     postgres_user: str = "trader_helper"

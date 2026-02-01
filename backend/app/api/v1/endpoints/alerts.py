@@ -1,13 +1,13 @@
-from fastapi import APIRouter
+from __future__ import annotations
 
-from app.application.alerts.service import DefaultAlertsApplicationService
+from fastapi import APIRouter, Query
+
 from app.api.dto.alerts import AlertOut
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[AlertOut])
-def list_alerts(limit: int = 50) -> list[AlertOut]:
-    service = DefaultAlertsApplicationService()
-    alerts = service.list_alerts(limit=limit)
-    return [AlertOut(**alert) for alert in alerts]
+def list_alerts(limit: int = Query(50, ge=1, le=200)) -> list[AlertOut]:
+    _ = limit
+    return []

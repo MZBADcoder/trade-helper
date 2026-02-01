@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
 
 
 class RuleCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
-    enabled: bool = True
-    call_put: str = "both"
-    dte_bucket: str = "3m"
+    key: str = Field(min_length=1, max_length=64)
+    name: str | None = None
 
 
-class RuleOut(RuleCreate):
+class RuleOut(BaseModel):
     id: int
-
+    key: str
+    name: str | None = None
+    created_at: str | None = None
