@@ -6,11 +6,10 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.domain.market_data.schemas import MarketBar
-from app.infrastructure.db.models import MarketBarModel
-from app.repository.market_data.interfaces import MarketDataRepository
+from app.infrastructure.db.models.market_data import MarketBarModel
 
 
-class SqlAlchemyMarketDataRepository(MarketDataRepository):
+class SqlAlchemyMarketDataRepository:
     def __init__(self, *, session: object | None = None) -> None:
         if session is None:
             raise ValueError("session is required")

@@ -6,10 +6,9 @@ from app.core.config import settings
 from app.infrastructure.clients.polygon import PolygonClient
 from app.domain.market_data.schemas import MarketBar
 from app.repository.market_data.interfaces import MarketDataRepository
-from app.domain.market_data.interfaces import MarketDataService
 
 
-class DefaultMarketDataService(MarketDataService):
+class DefaultMarketDataService:
     def __init__(
         self,
         *,

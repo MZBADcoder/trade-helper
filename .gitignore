@@ -53,6 +53,6 @@ dist/
 
 # Local overrides
 *.local
-
+.codex
 
 *.iml

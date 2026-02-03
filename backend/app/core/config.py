@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     app_env: str = "dev"
     app_secret_key: str = "change-me"
+    auth_access_token_expire_days: int = 14
 
     polygon_api_key: str | None = None
     market_data_daily_lookback_days: int = 730

@@ -4,9 +4,10 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.deps import get_market_data_service
+from app.api.deps import get_current_user, get_market_data_service
 from app.api.v1.dto.market_data import MarketBarOut
 from app.application.market_data.service import DefaultMarketDataApplicationService
+from app.domain.auth.schemas import User
 from app.domain.market_data.schemas import MarketBar
 
 router = APIRouter()
@@ -25,7 +26,9 @@ def list_bars(
     to_date: date | None = Query(None, alias="to"),
     limit: int | None = Query(None, ge=1, le=50000),
     service: DefaultMarketDataApplicationService = Depends(get_market_data_service),
+    current_user: User = Depends(get_current_user),
 ) -> list[MarketBarOut]:
+    _ = current_user
     try:
         bars = service.list_bars(
             ticker=ticker,

@@ -4,22 +4,29 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.domain.watchlist.schemas import WatchlistItem
-from app.infrastructure.db.models import WatchlistItemModel
-from app.repository.watchlist.interfaces import WatchlistRepository
+from app.infrastructure.db.models.watchlist import WatchlistItemModel
 
 
-class SqlAlchemyWatchlistRepository(WatchlistRepository):
+class SqlAlchemyWatchlistRepository:
     def __init__(self, *, session: object | None = None) -> None:
         if session is None:
             raise ValueError("session is required")
         self._session = session
 
-    def list_items(self) -> list[WatchlistItem]:
-        rows = self._session.execute(select(WatchlistItemModel).order_by(WatchlistItemModel.ticker)).scalars().all()
+    def list_items(self, *, user_id: int) -> list[WatchlistItem]:
+        rows = (
+            self._session.execute(
+                select(WatchlistItemModel)
+                .where(WatchlistItemModel.user_id == user_id)
+                .order_by(WatchlistItemModel.ticker)
+            )
+            .scalars()
+            .all()
+        )
         return [self._to_schema(row) for row in rows]
 
-    def add_item(self, *, ticker: str) -> WatchlistItem:
-        item = WatchlistItemModel(ticker=ticker)
+    def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
+        item = WatchlistItemModel(user_id=user_id, ticker=ticker)
         self._session.add(item)
         try:
             self._session.commit()
@@ -29,8 +36,13 @@ class SqlAlchemyWatchlistRepository(WatchlistRepository):
         self._session.refresh(item)
         return self._to_schema(item)
 
-    def remove_item(self, *, ticker: str) -> None:
-        self._session.execute(delete(WatchlistItemModel).where(WatchlistItemModel.ticker == ticker))
+    def remove_item(self, *, user_id: int, ticker: str) -> None:
+        self._session.execute(
+            delete(WatchlistItemModel).where(
+                WatchlistItemModel.user_id == user_id,
+                WatchlistItemModel.ticker == ticker,
+            )
+        )
         self._session.commit()
 
     @staticmethod

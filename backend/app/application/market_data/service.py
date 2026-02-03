@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.application.market_data.interfaces import MarketDataApplicationService
 from app.core.config import settings
 from app.domain.market_data.schemas import MarketBar
 from app.domain.market_data.services import DefaultMarketDataService
@@ -10,7 +9,7 @@ from app.infrastructure.clients.polygon import PolygonClient
 from app.repository.market_data.interfaces import MarketDataRepository
 
 
-class DefaultMarketDataApplicationService(MarketDataApplicationService):
+class DefaultMarketDataApplicationService:
     def __init__(
         self,
         *,

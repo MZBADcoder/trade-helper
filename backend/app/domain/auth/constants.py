@@ -1,0 +1,5 @@
+ERROR_EMAIL_ALREADY_REGISTERED = "Email already registered"
+ERROR_INVALID_EMAIL_OR_PASSWORD = "Invalid email or password"
+ERROR_USER_INACTIVE = "User is inactive"
+ERROR_INVALID_USER_ID = "Invalid user id"
+ERROR_INVALID_TOKEN = "Invalid token"

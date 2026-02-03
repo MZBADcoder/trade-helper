@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 
-from app.application.watchlist.interfaces import WatchlistApplicationService
 from app.application.market_data.interfaces import MarketDataApplicationService
 from app.domain.watchlist.interfaces import WatchlistService
 from app.domain.watchlist.services import DefaultWatchlistService
@@ -12,7 +11,7 @@ from app.repository.watchlist.interfaces import WatchlistRepository
 logger = logging.getLogger(__name__)
 
 
-class DefaultWatchlistApplicationService(WatchlistApplicationService):
+class DefaultWatchlistApplicationService:
     def __init__(
         self,
         *,
@@ -24,11 +23,11 @@ class DefaultWatchlistApplicationService(WatchlistApplicationService):
         self._repository = repository
         self._market_data_service = market_data_service
 
-    def list_items(self) -> list[WatchlistItem]:
-        return self._resolve_service().list_items()
+    def list_items(self, *, user_id: int) -> list[WatchlistItem]:
+        return self._resolve_service().list_items(user_id=user_id)
 
-    def add_item(self, *, ticker: str) -> WatchlistItem:
-        item = self._resolve_service().add_item(ticker=ticker)
+    def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
+        item = self._resolve_service().add_item(user_id=user_id, ticker=ticker)
 
         if self._market_data_service is not None:
             try:
@@ -38,8 +37,8 @@ class DefaultWatchlistApplicationService(WatchlistApplicationService):
 
         return item
 
-    def remove_item(self, *, ticker: str) -> None:
-        self._resolve_service().remove_item(ticker=ticker)
+    def remove_item(self, *, user_id: int, ticker: str) -> None:
+        self._resolve_service().remove_item(user_id=user_id, ticker=ticker)
         return None
 
     def _resolve_service(self) -> WatchlistService:
