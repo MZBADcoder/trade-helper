@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.domain.watchlist.schemas import WatchlistItem
 from app.infrastructure.db.models.watchlist import WatchlistItemModel
 
 
 class SqlAlchemyWatchlistRepository:
-    def __init__(self, *, session: object | None = None) -> None:
-        if session is None:
-            raise ValueError("session is required")
+    def __init__(self, *, session: Session) -> None:
         self._session = session
 
     def list_items(self, *, user_id: int) -> list[WatchlistItem]:

@@ -4,15 +4,14 @@ from datetime import datetime
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from app.domain.market_data.schemas import MarketBar
 from app.infrastructure.db.models.market_data import MarketBarModel
 
 
 class SqlAlchemyMarketDataRepository:
-    def __init__(self, *, session: object | None = None) -> None:
-        if session is None:
-            raise ValueError("session is required")
+    def __init__(self, *, session: Session) -> None:
         self._session = session
 
     def list_bars(

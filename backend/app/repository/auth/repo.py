@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.domain.auth.constants import ERROR_EMAIL_ALREADY_REGISTERED
 from app.domain.auth.schemas import User, UserCredentials
@@ -11,9 +12,7 @@ from app.infrastructure.db.models.user import UserModel
 
 
 class SqlAlchemyAuthRepository:
-    def __init__(self, *, session: object | None = None) -> None:
-        if session is None:
-            raise ValueError("session is required")
+    def __init__(self, *, session: Session) -> None:
         self._session = session
 
     def create_user(

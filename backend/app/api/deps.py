@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -11,8 +13,11 @@ from app.core.config import settings
 from app.domain.auth.schemas import User
 from app.infrastructure.clients.polygon import PolygonClient
 from app.infrastructure.db.session import get_db
+from app.repository.auth.interfaces import AuthRepository
 from app.repository.auth.repo import SqlAlchemyAuthRepository
+from app.repository.market_data.interfaces import MarketDataRepository
 from app.repository.market_data.repo import SqlAlchemyMarketDataRepository
+from app.repository.watchlist.interfaces import WatchlistRepository
 from app.repository.watchlist.repo import SqlAlchemyWatchlistRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -25,14 +30,14 @@ def _get_polygon_client() -> PolygonClient | None:
 
 
 def get_market_data_service(db: Session = Depends(get_db)) -> DefaultMarketDataApplicationService:
-    repository = SqlAlchemyMarketDataRepository(session=db)
+    repository = cast(MarketDataRepository, SqlAlchemyMarketDataRepository(session=db))
     polygon_client = _get_polygon_client()
     return DefaultMarketDataApplicationService(repository=repository, polygon_client=polygon_client)
 
 
 def get_watchlist_service(db: Session = Depends(get_db)) -> DefaultWatchlistApplicationService:
-    watchlist_repo = SqlAlchemyWatchlistRepository(session=db)
-    market_data_repo = SqlAlchemyMarketDataRepository(session=db)
+    watchlist_repo = cast(WatchlistRepository, SqlAlchemyWatchlistRepository(session=db))
+    market_data_repo = cast(MarketDataRepository, SqlAlchemyMarketDataRepository(session=db))
     polygon_client = _get_polygon_client()
     market_data_service = DefaultMarketDataApplicationService(
         repository=market_data_repo,
@@ -45,7 +50,7 @@ def get_watchlist_service(db: Session = Depends(get_db)) -> DefaultWatchlistAppl
 
 
 def get_auth_service(db: Session = Depends(get_db)) -> DefaultAuthApplicationService:
-    repository = SqlAlchemyAuthRepository(session=db)
+    repository = cast(AuthRepository, SqlAlchemyAuthRepository(session=db))
     return DefaultAuthApplicationService(repository=repository)
 
 
