@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class MarketBarOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
+
     ticker: str
     timespan: str
     multiplier: int

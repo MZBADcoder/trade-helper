@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
-from pydantic import BaseModel
 
-
-class MarketBar(BaseModel):
+@dataclass(slots=True)
+class MarketBar:
     ticker: str
     timespan: str
     multiplier: int

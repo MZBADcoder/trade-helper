@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.domain.market_data.schemas import MarketBar
+from app.infrastructure.db.mappers import market_bar_to_domain, market_bar_to_row
 from app.infrastructure.db.models.market_data import MarketBarModel
 
 
@@ -40,7 +41,7 @@ class SqlAlchemyMarketDataRepository:
         if limit:
             stmt = stmt.limit(limit)
         rows = self._session.execute(stmt).scalars().all()
-        return [self._to_schema(row) for row in rows]
+        return [market_bar_to_domain(row) for row in rows]
 
     def get_range_coverage(
         self,
@@ -64,7 +65,7 @@ class SqlAlchemyMarketDataRepository:
     def upsert_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
             return
-        payload = [self._to_row(bar) for bar in bars]
+        payload = [market_bar_to_row(bar) for bar in bars]
         stmt = insert(MarketBarModel).values(payload)
         update_cols = {
             "open": stmt.excluded.open,
@@ -81,38 +82,3 @@ class SqlAlchemyMarketDataRepository:
             set_=update_cols,
         )
         self._session.execute(stmt)
-        self._session.commit()
-
-    @staticmethod
-    def _to_row(bar: MarketBar) -> dict:
-        return {
-            "ticker": bar.ticker,
-            "timespan": bar.timespan,
-            "multiplier": bar.multiplier,
-            "start_at": bar.start_at,
-            "open": bar.open,
-            "high": bar.high,
-            "low": bar.low,
-            "close": bar.close,
-            "volume": bar.volume,
-            "vwap": bar.vwap,
-            "trades": bar.trades,
-            "source": bar.source,
-        }
-
-    @staticmethod
-    def _to_schema(item: MarketBarModel) -> MarketBar:
-        return MarketBar(
-            ticker=item.ticker,
-            timespan=item.timespan,
-            multiplier=item.multiplier,
-            start_at=item.start_at,
-            open=item.open,
-            high=item.high,
-            low=item.low,
-            close=item.close,
-            volume=item.volume,
-            vwap=item.vwap,
-            trades=item.trades,
-            source=item.source,
-        )

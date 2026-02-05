@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from app.application.market_data.interfaces import MarketDataApplicationService
-from app.domain.watchlist.interfaces import WatchlistService
-from app.domain.watchlist.services import DefaultWatchlistService
+from app.application.market_data.service import DefaultMarketDataApplicationService
 from app.domain.watchlist.schemas import WatchlistItem
-from app.repository.watchlist.interfaces import WatchlistRepository
+from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 logger = logging.getLogger(__name__)
 
@@ -15,19 +13,25 @@ class DefaultWatchlistApplicationService:
     def __init__(
         self,
         *,
-        service: WatchlistService | None = None,
-        repository: WatchlistRepository | None = None,
-        market_data_service: MarketDataApplicationService | None = None,
+        uow: SqlAlchemyUnitOfWork,
+        market_data_service: DefaultMarketDataApplicationService | None = None,
     ) -> None:
-        self._service = service
-        self._repository = repository
+        self._uow = uow
         self._market_data_service = market_data_service
 
     def list_items(self, *, user_id: int) -> list[WatchlistItem]:
-        return self._resolve_service().list_items(user_id=user_id)
+        _validate_user_id(user_id=user_id)
+        with self._uow as uow:
+            repo = _require_watchlist_repo(uow)
+            return repo.list_items(user_id=user_id)
 
     def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
-        item = self._resolve_service().add_item(user_id=user_id, ticker=ticker)
+        _validate_user_id(user_id=user_id)
+        normalized = _normalize_ticker(ticker)
+        with self._uow as uow:
+            repo = _require_watchlist_repo(uow)
+            item = repo.add_item(user_id=user_id, ticker=normalized)
+            uow.commit()
 
         if self._market_data_service is not None:
             try:
@@ -38,12 +42,28 @@ class DefaultWatchlistApplicationService:
         return item
 
     def remove_item(self, *, user_id: int, ticker: str) -> None:
-        self._resolve_service().remove_item(user_id=user_id, ticker=ticker)
+        _validate_user_id(user_id=user_id)
+        normalized = _normalize_ticker(ticker)
+        with self._uow as uow:
+            repo = _require_watchlist_repo(uow)
+            repo.remove_item(user_id=user_id, ticker=normalized)
+            uow.commit()
         return None
 
-    def _resolve_service(self) -> WatchlistService:
-        if self._service is not None:
-            return self._service
-        if self._repository is None:
-            raise ValueError("repository is required")
-        return DefaultWatchlistService(repository=self._repository)
+
+def _require_watchlist_repo(uow: SqlAlchemyUnitOfWork):
+    if uow.watchlist_repo is None:
+        raise RuntimeError("Watchlist repository not configured")
+    return uow.watchlist_repo
+
+
+def _normalize_ticker(ticker: str) -> str:
+    normalized = ticker.strip().upper()
+    if not normalized:
+        raise ValueError("Ticker is required")
+    return normalized
+
+
+def _validate_user_id(*, user_id: int) -> None:
+    if user_id < 1:
+        raise ValueError("Invalid user id")

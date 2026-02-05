@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.watchlist.schemas import WatchlistItem
+from app.infrastructure.db.mappers import watchlist_item_to_domain
 from app.infrastructure.db.models.watchlist import WatchlistItemModel
 
 
@@ -22,18 +23,17 @@ class SqlAlchemyWatchlistRepository:
             .scalars()
             .all()
         )
-        return [self._to_schema(row) for row in rows]
+        return [watchlist_item_to_domain(row) for row in rows]
 
     def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
         item = WatchlistItemModel(user_id=user_id, ticker=ticker)
         self._session.add(item)
         try:
-            self._session.commit()
+            self._session.flush()
         except IntegrityError as exc:
             self._session.rollback()
             raise ValueError("Ticker already exists in watchlist") from exc
-        self._session.refresh(item)
-        return self._to_schema(item)
+        return watchlist_item_to_domain(item)
 
     def remove_item(self, *, user_id: int, ticker: str) -> None:
         self._session.execute(
@@ -42,9 +42,4 @@ class SqlAlchemyWatchlistRepository:
                 WatchlistItemModel.ticker == ticker,
             )
         )
-        self._session.commit()
-
-    @staticmethod
-    def _to_schema(item: WatchlistItemModel) -> WatchlistItem:
-        created_at = item.created_at.isoformat() if item.created_at else None
-        return WatchlistItem(ticker=item.ticker, created_at=created_at)
+        self._session.flush()

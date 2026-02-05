@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RegisterRequest(BaseModel):
@@ -16,12 +16,16 @@ class LoginRequest(BaseModel):
 
 
 class AccessTokenOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     access_token: str
     token_type: str
     expires_in: int
 
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email: str
     is_active: bool

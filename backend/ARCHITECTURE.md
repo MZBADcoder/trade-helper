@@ -1,122 +1,64 @@
-# Backend Architecture (DDD Skeleton)
+# Backend Architecture (DDD No-Interfaces)
 
-This backend is organized as a lightweight DDD-style skeleton. Most layers are **intentionally unimplemented** (raise `NotImplementedError`) and serve as contracts and structure for long-term iteration.
-
-## Layers & Responsibilities
+This backend follows a **DDD-inspired, no-interfaces** layout:
 
 - **api/**
-  - FastAPI routers and external API contracts.
-  - Uses **DTOs** for request/response models.
-  - Should call **application** services only (no direct repository access).
+  - FastAPI routers and external DTOs.
+  - Thin controllers: validate input, call application services, map errors to HTTP.
+  - API must not touch ORM/DB clients.
 
 - **application/**
-  - Application layer (use-case orchestration / aggregation).
-  - Converts **DTOs ↔ domain schemas** via mappers.
-  - Depends on **domain services** via interfaces.
+  - Use-case orchestration and transaction boundaries.
+  - Depends on concrete infrastructure classes via dependency injection.
+  - Uses a Unit of Work (UoW) to control commits.
 
 - **domain/**
-  - Core domain definitions.
-  - **schemas.py** = domain input/output models (not DTOs).
-  - **interfaces.py** = domain service contracts.
-  - **services.py** = domain service implementation (business rules).
-  - **models.py** = domain entities placeholder (future ORM/pure domain entities).
-
-- **repository/**
-  - Data access contracts and implementations.
-  - **interfaces.py** defines repository contracts.
-  - **repo.py** holds persistence implementations (currently skeleton).
+  - Pure domain entities (dataclasses), value objects, and domain errors.
+  - No imports from FastAPI, Pydantic, SQLAlchemy, Redis, or Celery.
 
 - **infrastructure/**
-  - Technical details (DB sessions/init, external clients, notifications).
-  - Keep external integrations here.
+  - DB session, UoW, repositories, mappers, and external clients.
+  - Repositories return domain entities via mappers.
 
 - **core/**
-  - App-wide configuration and tooling (settings, celery, etc.).
+  - App-wide configuration and security helpers.
 
 - **tasks/**
-  - Background task entrypoints (Celery tasks).
-
-## DTO vs Domain Schema
-
-- **DTO (api/dto/...)**
-  - External contract with frontend.
-  - Can change frequently.
-
-- **Domain Schema (domain/*/schemas.py)**
-  - Internal contract between domain/application.
-  - Should be stable and business-focused.
+  - Background task entrypoints (Celery).
 
 ## Dependency Direction
 
-`api → application → domain → repository → infrastructure`
+`api → application → infrastructure → domain`
 
-Rules:
-- API should not import repository or infrastructure directly.
-- Application depends on domain interfaces and maps DTO ↔ domain schemas.
-- Domain services depend on repository interfaces (not concrete implementations).
-- Infrastructure is only referenced by repository implementations or app bootstrapping.
+Notes:
+- No interface/Protocol/ABC layers.
+- Application services are constructed in `application/container.py`.
+- API only imports the container and application services.
 
-## Folder Map (Current)
+## Key Files
 
 ```
 app/
   api/
+    v1/
     dto/
-    v1/endpoints/
   application/
+    container.py
+    auth/
+    market_data/
     watchlist/
-      interfaces.py
-      mapper.py
-      service.py
-    rules/
-      interfaces.py
-      mapper.py
-      service.py
-    alerts/
-      interfaces.py
-      mapper.py
-      service.py
   domain/
+    auth/
+    market_data/
     watchlist/
-      interfaces.py
-      schemas.py
-      services.py
-    rules/
-      interfaces.py
-      schemas.py
-      services.py
-    alerts/
-      interfaces.py
-      schemas.py
-      services.py
-    scans/
-      iv_scanner.py
-    models.py
-    base.py
-  repository/
-    watchlist/
-      interfaces.py
-      repo.py
-    rules/
-      interfaces.py
-      repo.py
-    alerts/
-      interfaces.py
-      repo.py
   infrastructure/
     db/
-      session.py
-      init_db.py
+      mappers.py
+      uow.py
+      models/
+    repositories/
     clients/
-      polygon.py
-    notifications/
-      feishu.py
   core/
   tasks/
   main.py
 ```
-
-## Notes
-
-- Many methods are placeholders (raise `NotImplementedError`) by design.
-- This document is the reference for future iteration and refactors.

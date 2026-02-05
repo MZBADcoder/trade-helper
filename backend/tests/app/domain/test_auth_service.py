@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.application.auth.service import DefaultAuthApplicationService
 from app.core.security import hash_password, verify_password
 from app.domain.auth.constants import (
     ERROR_EMAIL_ALREADY_REGISTERED,
@@ -12,7 +13,6 @@ from app.domain.auth.constants import (
     ERROR_USER_INACTIVE,
 )
 from app.domain.auth.schemas import User, UserCredentials
-from app.domain.auth.services import DefaultAuthService
 
 
 class FakeAuthRepository:
@@ -43,9 +43,14 @@ class FakeAuthRepository:
             last_login_at=None,
         )
         self.by_email_normalized[email_normalized] = UserCredentials(
-            **user.model_dump(),
+            id=user.id,
+            email=user.email,
             email_normalized=email_normalized,
             password_hash=password_hash,
+            is_active=user.is_active,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+            last_login_at=user.last_login_at,
         )
         return user
 
@@ -55,7 +60,14 @@ class FakeAuthRepository:
     def get_user_by_id(self, *, user_id: int) -> User | None:
         for user in self.by_email_normalized.values():
             if user.id == user_id:
-                return User(**user.model_dump(exclude={"email_normalized", "password_hash"}))
+                return User(
+                    id=user.id,
+                    email=user.email,
+                    is_active=user.is_active,
+                    created_at=user.created_at,
+                    updated_at=user.updated_at,
+                    last_login_at=user.last_login_at,
+                )
         return None
 
     def update_last_login(self, *, user_id: int) -> User | None:
@@ -64,14 +76,37 @@ class FakeAuthRepository:
         if current is None:
             return None
         return User(
-            **current.model_dump(exclude={"last_login_at"}),
+            id=current.id,
+            email=current.email,
+            is_active=current.is_active,
+            created_at=current.created_at,
+            updated_at=current.updated_at,
             last_login_at=datetime.now(tz=timezone.utc),
         )
 
 
+class FakeUoW:
+    def __init__(self, *, auth_repo: FakeAuthRepository) -> None:
+        self.auth_repo = auth_repo
+        self.watchlist_repo = None
+        self.market_data_repo = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
+
+
 def test_register_normalizes_email_and_hashes_password() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthService(repository=repo)
+    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     created = service.register(email=" Trader@Example.com ", password="StrongPass123")
 
@@ -94,7 +129,7 @@ def test_register_rejects_duplicate_email() -> None:
         updated_at=datetime.now(tz=timezone.utc),
         last_login_at=None,
     )
-    service = DefaultAuthService(repository=repo)
+    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     with pytest.raises(ValueError, match=ERROR_EMAIL_ALREADY_REGISTERED):
         service.register(email="Trader@example.com", password="StrongPass123")
@@ -102,12 +137,12 @@ def test_register_rejects_duplicate_email() -> None:
 
 def test_authenticate_updates_last_login_when_credentials_valid() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthService(repository=repo)
+    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
     service.register(email="trader@example.com", password="StrongPass123")
 
-    user = service.authenticate(email="TRADER@example.com", password="StrongPass123")
+    user = service.login(email="TRADER@example.com", password="StrongPass123")
 
-    assert user.last_login_at is not None
+    assert user.access_token
     assert repo.updated_user_id == 1
 
 
@@ -123,18 +158,18 @@ def test_authenticate_rejects_invalid_or_inactive_user() -> None:
         updated_at=datetime.now(tz=timezone.utc),
         last_login_at=None,
     )
-    service = DefaultAuthService(repository=repo)
+    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
-        service.authenticate(email="trader@example.com", password="wrong-pass")
+        service.login(email="trader@example.com", password="wrong-pass")
 
     with pytest.raises(ValueError, match=ERROR_USER_INACTIVE):
-        service.authenticate(email="trader@example.com", password="StrongPass123")
+        service.login(email="trader@example.com", password="StrongPass123")
 
 
 def test_get_user_rejects_invalid_user_id() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthService(repository=repo)
+    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     with pytest.raises(ValueError, match=ERROR_INVALID_USER_ID):
         service.get_user(user_id=0)

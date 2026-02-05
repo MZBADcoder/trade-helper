@@ -17,12 +17,11 @@ def register(
     service: DefaultAuthApplicationService = Depends(get_auth_service),
 ) -> UserOut:
     try:
-        user = service.register(email=payload.email, password=payload.password)
+        return service.register(email=payload.email, password=payload.password)
     except ValueError as exc:
         detail = str(exc)
         status_code = status.HTTP_409_CONFLICT if detail == ERROR_EMAIL_ALREADY_REGISTERED else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=detail) from exc
-    return UserOut(**user.model_dump())
 
 
 @router.post("/login", response_model=AccessTokenOut)
@@ -31,12 +30,11 @@ def login(
     service: DefaultAuthApplicationService = Depends(get_auth_service),
 ) -> AccessTokenOut:
     try:
-        token = service.login(email=payload.email, password=payload.password)
+        return service.login(email=payload.email, password=payload.password)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-    return AccessTokenOut(**token.model_dump())
 
 
 @router.get("/me", response_model=UserOut)
 def me(current_user: User = Depends(get_current_user)) -> UserOut:
-    return UserOut(**current_user.model_dump())
+    return current_user

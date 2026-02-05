@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
-from pydantic import BaseModel
 
-
-class User(BaseModel):
+@dataclass(slots=True)
+class User:
     id: int
     email: str
     is_active: bool
@@ -14,12 +14,20 @@ class User(BaseModel):
     last_login_at: datetime | None = None
 
 
-class UserCredentials(User):
+@dataclass(slots=True)
+class UserCredentials:
+    id: int
+    email: str
     email_normalized: str
     password_hash: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None = None
 
 
-class AccessToken(BaseModel):
+@dataclass(slots=True)
+class AccessToken:
     access_token: str
-    token_type: str = "bearer"
     expires_in: int
+    token_type: str = "bearer"

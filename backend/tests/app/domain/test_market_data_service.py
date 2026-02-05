@@ -4,8 +4,8 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from app.application.market_data.service import DefaultMarketDataApplicationService
 from app.domain.market_data.schemas import MarketBar
-from app.domain.market_data.services import DefaultMarketDataService
 
 
 class FakeMarketDataRepository:
@@ -40,6 +40,25 @@ class FakeMarketDataRepository:
     def upsert_bars(self, bars: list[MarketBar]) -> None:
         self.upserted.extend(bars)
         self._bars = list(bars)
+
+
+class FakeUoW:
+    def __init__(self, *, market_data_repo: FakeMarketDataRepository) -> None:
+        self.market_data_repo = market_data_repo
+        self.auth_repo = None
+        self.watchlist_repo = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
 
 
 class FakePolygonClient:
@@ -82,7 +101,10 @@ def test_list_bars_uses_cache_when_coverage_sufficient() -> None:
         )
     ]
     repo = FakeMarketDataRepository(bars=cached, coverage=coverage)
-    service = DefaultMarketDataService(repository=repo, polygon_client=FailPolygonClient())
+    service = DefaultMarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        polygon_client=FailPolygonClient(),
+    )
 
     result = service.list_bars(
         ticker="aapl",
@@ -113,7 +135,10 @@ def test_list_bars_fetches_polygon_when_cache_missing() -> None:
     }
     repo = FakeMarketDataRepository(bars=[], coverage=None)
     polygon = FakePolygonClient(payload)
-    service = DefaultMarketDataService(repository=repo, polygon_client=polygon)
+    service = DefaultMarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        polygon_client=polygon,
+    )
 
     result = service.list_bars(
         ticker="MSFT",
@@ -131,7 +156,10 @@ def test_list_bars_fetches_polygon_when_cache_missing() -> None:
 
 def test_list_bars_rejects_invalid_date_range() -> None:
     repo = FakeMarketDataRepository(bars=[], coverage=None)
-    service = DefaultMarketDataService(repository=repo, polygon_client=FailPolygonClient())
+    service = DefaultMarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        polygon_client=FailPolygonClient(),
+    )
 
     with pytest.raises(ValueError):
         service.list_bars(

@@ -1,4 +1,8 @@
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WatchlistItemCreate(BaseModel):
@@ -6,6 +10,7 @@ class WatchlistItemCreate(BaseModel):
 
 
 class WatchlistItemOut(BaseModel):
-    ticker: str
-    created_at: str | None = None
+    model_config = ConfigDict(from_attributes=True)
 
+    ticker: str
+    created_at: datetime | None = None

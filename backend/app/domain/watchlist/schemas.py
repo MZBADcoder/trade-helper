@@ -1,10 +1,10 @@
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
 
 
-class WatchlistItemIn(BaseModel):
-    ticker: str = Field(min_length=1, max_length=16)
-
-
-class WatchlistItem(BaseModel):
+@dataclass(slots=True)
+class WatchlistItem:
     ticker: str
-    created_at: str | None = None
+    created_at: datetime | None = None

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.application.auth.service import DefaultAuthApplicationService
+from app.domain.auth.constants import ERROR_EMAIL_ALREADY_REGISTERED
 from app.domain.auth.schemas import User, UserCredentials
 
 
@@ -16,7 +17,7 @@ class FakeAuthRepository:
 
     def create_user(self, *, email: str, email_normalized: str, password_hash: str) -> User:
         if email_normalized in self._email_index:
-            raise ValueError("Email already registered")
+            raise ValueError(ERROR_EMAIL_ALREADY_REGISTERED)
 
         user_id = self._next_id
         self._next_id += 1
@@ -66,9 +67,32 @@ class FakeAuthRepository:
         )
 
 
+class FakeUoW:
+    def __init__(self, *, auth_repo: FakeAuthRepository) -> None:
+        self.auth_repo = auth_repo
+        self.market_data_repo = None
+        self.watchlist_repo = None
+        self.commits = 0
+        self.rollbacks = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type:
+            self.rollback()
+        return None
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
 def test_register_and_login_issue_valid_access_token() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthApplicationService(repository=repo)
+    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     created = service.register(email="Trader@Example.com", password="strong-pass-123")
     token = service.login(email="trader@example.com", password="strong-pass-123")
@@ -82,7 +106,7 @@ def test_register_and_login_issue_valid_access_token() -> None:
 
 def test_login_rejects_wrong_password() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthApplicationService(repository=repo)
+    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
     service.register(email="trader@example.com", password="strong-pass-123")
 
     with pytest.raises(ValueError, match="Invalid email or password"):

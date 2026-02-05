@@ -8,13 +8,8 @@ from app.api.deps import get_current_user, get_market_data_service
 from app.api.v1.dto.market_data import MarketBarOut
 from app.application.market_data.service import DefaultMarketDataApplicationService
 from app.domain.auth.schemas import User
-from app.domain.market_data.schemas import MarketBar
 
 router = APIRouter()
-
-
-def _to_dto(bar: MarketBar) -> MarketBarOut:
-    return MarketBarOut(**bar.model_dump(exclude={"source"}))
 
 
 @router.get("/bars", response_model=list[MarketBarOut])
@@ -30,7 +25,7 @@ def list_bars(
 ) -> list[MarketBarOut]:
     _ = current_user
     try:
-        bars = service.list_bars(
+        return service.list_bars(
             ticker=ticker,
             timespan=timespan,
             multiplier=multiplier,
@@ -40,4 +35,3 @@ def list_bars(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return [_to_dto(bar) for bar in bars]
