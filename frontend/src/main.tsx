@@ -3,12 +3,13 @@ import "@fontsource/jetbrains-mono/latin.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import { App } from "./ui/App";
-import "./ui/theme.css";
+import { App, AppProviders } from "@/app";
+import "@/app/styles/theme.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <AppProviders>
+      <App />
+    </AppProviders>
   </React.StrictMode>
 );
-

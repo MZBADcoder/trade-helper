@@ -1,10 +1,15 @@
 import React from "react";
 
-import { addWatchlist, deleteWatchlist, listWatchlist } from "../api";
+import {
+  type WatchlistItem,
+  addWatchlist,
+  deleteWatchlist,
+  listWatchlist
+} from "@/entities/watchlist";
 
-export function Settings() {
+export function SettingsPage() {
   const [ticker, setTicker] = React.useState("");
-  const [items, setItems] = React.useState<any[]>([]);
+  const [items, setItems] = React.useState<WatchlistItem[]>([]);
   const [error, setError] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
@@ -117,4 +122,3 @@ export function Settings() {
     </section>
   );
 }
-

@@ -1,10 +1,12 @@
 import React from "react";
 
-import { enqueueScan, listAlerts, listWatchlist } from "../api";
+import { type Alert, listAlerts } from "@/entities/alert";
+import { type WatchlistItem, listWatchlist } from "@/entities/watchlist";
+import { enqueueScan } from "@/features/scan";
 
-export function Dashboard() {
-  const [alerts, setAlerts] = React.useState<any[]>([]);
-  const [watchlist, setWatchlist] = React.useState<any[]>([]);
+export function DashboardPage() {
+  const [alerts, setAlerts] = React.useState<Alert[]>([]);
+  const [watchlist, setWatchlist] = React.useState<WatchlistItem[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
@@ -122,4 +124,3 @@ export function Dashboard() {
     </div>
   );
 }
-
