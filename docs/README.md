@@ -1,17 +1,23 @@
-# 文档索引（Trader Helper）
+# Docs Map (Trader Helper)
 
-> 目的：随着功能迭代会出现多份 PRD，本目录用于统一管理需求、架构与决策记录，避免所有内容堆在一份文档里。
+本目录按一条固定产品流程组织：
+1. `PRD`：先定需求边界与验收口径
+2. `ADR`：评估是否需要架构/关键决策变更
+3. `backend-evolution`：把 PRD 拆成后端接口与实现项
+4. `frontend-design`：基于 PRD + 后端能力做前端设计与原型
+5. `note`：每轮开发结束后的 TODO / follow-up
 
-## 快速入口
+## 目录
 
-- PRD 索引：`docs/prd/README.md`
-- 技术架构：`docs/tech/ARCHITECTURE.md`
-- 决策记录（ADR）：`docs/adr/README.md`
+- `docs/prd/`：需求文档与模板
+- `docs/adr/`：技术决策记录与架构基线
+- `docs/backend-evolution/`：后端接口演进与拆分计划
+- `docs/frontend-design/`：前端信息架构、交互与视觉设计
+- `docs/note/`：迭代待办、运行手册、阶段备注
 
-## 目录结构约定
+## 使用约定
 
-- `docs/prd/`：每个功能点一份 PRD（编号递增）
-- `docs/tech/`：相对稳定的技术架构、部署、运行说明（会被多个 PRD 复用）
-- `docs/adr/`：关键技术/产品决策的记录（短文档，便于回溯）
-- `docs/notes/`：阶段性讨论、会议纪要、探索性草稿（可丢弃/可合并）
-
+- 每次新需求先创建/更新 PRD，再决定是否写 ADR。
+- 进入开发前，必须在 `backend-evolution` 形成接口拆分记录。
+- 前端方案应引用对应 PRD 与后端演进文档编号。
+- 一轮开发结束后，将遗留项写入 `docs/note/todo.md`。

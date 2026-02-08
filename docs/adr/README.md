@@ -1,14 +1,24 @@
-# ADR（Architecture Decision Records）
+# ADR Index
 
-> 目的：记录关键决策及原因，避免“口口相传”。
+## 目标
 
-## 目录与编号
+记录关键技术决策，保证后续可回溯：为什么改、改了什么、代价是什么。
 
-- `ADR-0001`、`ADR-0002`… 递增编号
-- 每条 ADR 一页，尽量短（1~2 屏内能读完）
+## 文件约定
+
+- 编号：`ADR-0001`、`ADR-0002`...
+- 命名：`ADR-xxxx-<short-slug>.md`
+- 单文档尽量控制在 1-2 屏，聚焦一个决策
 
 ## 清单
 
-- `ADR-0001`：Web MVP 技术栈（React + FastAPI + Celery + Redis + Postgres，Docker Compose）
-  - 文件：`docs/adr/ADR-0001-mvp-stack.md`
+- `ADR-0001` Web MVP 技术栈
+  - `/Users/mz/pmf/trader-helper/docs/adr/ADR-0001-mvp-stack.md`
+- `ARCHITECTURE-BASELINE` 当前通用架构基线（非决策单）
+  - `/Users/mz/pmf/trader-helper/docs/adr/ARCHITECTURE-BASELINE.md`
 
+## 什么时候新增 ADR
+
+- PRD 要求引入新组件/中间件/部署模型
+- 接口边界或一致性策略发生变化
+- 预计会影响多模块协作或后续迁移成本

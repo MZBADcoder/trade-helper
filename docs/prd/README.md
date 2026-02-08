@@ -1,23 +1,30 @@
-# PRD 索引
+# PRD Index
 
-## 编号与命名
+## 规则
 
-- 编号格式：`PRD-0001`、`PRD-0002`…
-- 文件命名：`PRD-0001-<short-slug>.md`
-- slug 建议使用英文小写 + `-`，便于路径稳定与引用。
+- 编号：`PRD-0001`、`PRD-0002`...
+- 文件命名：`PRD-xxxx-<short-slug>.md`
+- 每个 PRD 需要有明确验收标准（DoD）与非目标
 
-## PRD 清单
+## 清单
 
-- `PRD-0001`：IV Percentile 告警（Polygon.io，美股期权，Web MVP）
-  - 文件：`docs/prd/PRD-0001-iv-percentile-alerts.md`
+- `PRD-0001` IV Percentile 告警（Polygon.io，美股期权，Web MVP）
+  - `/Users/mz/pmf/trader-helper/docs/prd/PRD-0001-iv-percentile-alerts.md`
 
-## 写作规范（建议）
+## 写作要求
 
-- 每个 PRD 都包含：目标/非目标、用户与场景、核心流程、功能拆分（MVP/Should/Nice）、验收标准、风险与开放问题
-- 技术架构只写“需求相关差异”，通用架构放到 `docs/tech/ARCHITECTURE.md`
-- 关键口径（去重键、窗口定义、DTE 分桶等）必须“可实现、无歧义”
+每个 PRD 至少包含：
+- 目标与非目标
+- 用户场景与核心流程
+- 功能优先级（MVP / Should / Nice）
+- 验收标准
+- 风险与开放问题
+
+PRD 冻结后，下一步产出：
+- 可能变更的 ADR（如有）
+- 对应后端拆分文档（`docs/backend-evolution/`）
+- 对应前端设计文档（`docs/frontend-design/`）
 
 ## 模板
 
-- PRD 模板：`docs/prd/TEMPLATE.md`
-
+- `/Users/mz/pmf/trader-helper/docs/prd/TEMPLATE.md`
