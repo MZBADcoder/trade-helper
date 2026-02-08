@@ -1,6 +1,7 @@
 import React from "react";
 
 import { buildIndicators, type IndicatorBundle, type MarketBar } from "@/entities/market";
+import { TerminalEmptyGraphic } from "@/shared/ui";
 import { type WatchlistItem } from "@/entities/watchlist";
 import { StockChartPanel } from "@/widgets/stock-chart";
 
@@ -288,7 +289,10 @@ export function DemoTerminalPage() {
                 ))}
               </div>
             ) : (
-              <div className="muted">Open a symbol from demo watchlist to inspect details.</div>
+              <div className="emptyState">
+                <TerminalEmptyGraphic />
+                <p className="muted">Open a symbol from demo watchlist to inspect details.</p>
+              </div>
             )}
 
             {activeTicker && activeDetail?.loading ? <div className="muted">Loading demo bars and indicators...</div> : null}

@@ -256,12 +256,24 @@ pre {
 .heroCard {
   border: 1px solid var(--line);
   border-radius: 22px;
-  padding: 34px;
+  padding: 28px;
   background:
     linear-gradient(145deg, rgba(12, 21, 35, 0.95), rgba(8, 14, 25, 0.94)),
     radial-gradient(700px 420px at 88% 0%, rgba(116, 184, 255, 0.26), transparent 50%),
     radial-gradient(640px 360px at 10% 10%, rgba(89, 214, 176, 0.22), transparent 48%);
   box-shadow: var(--shadow);
+}
+
+.heroLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 44%);
+  gap: 22px;
+  align-items: center;
+}
+
+.heroCopy {
+  display: grid;
+  gap: 8px;
 }
 
 .heroEyebrow {
@@ -291,6 +303,7 @@ pre {
   margin-top: 24px;
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .heroPrimary {
@@ -300,6 +313,48 @@ pre {
 
 .heroSecondary {
   border-color: rgba(116, 184, 255, 0.68);
+}
+
+.heroStats {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.heroStat {
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(7, 12, 22, 0.7);
+  padding: 9px;
+  display: grid;
+  gap: 3px;
+}
+
+.heroStatLabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+
+.heroStatValue {
+  font-size: 12px;
+  color: #c9d7ee;
+}
+
+.marketHeroGraphic {
+  border: 1px solid rgba(116, 184, 255, 0.22);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(7, 12, 22, 0.72);
+  animation: heroFloat 6s ease-in-out infinite;
+}
+
+.marketHeroGraphic svg {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .featureGrid {
@@ -313,6 +368,22 @@ pre {
   background: rgba(11, 17, 30, 0.82);
   border-radius: 14px;
   padding: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.featureGlyph {
+  width: 44px;
+  height: 26px;
+  border: 1px solid rgba(116, 184, 255, 0.45);
+  background: rgba(116, 184, 255, 0.16);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #c8dbf7;
 }
 
 .featurePanel h2 {
@@ -327,6 +398,23 @@ pre {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.emptyState {
+  padding: 12px;
+  border: 1px dashed rgba(116, 184, 255, 0.4);
+  border-radius: 12px;
+  background: rgba(7, 12, 22, 0.6);
+}
+
+.terminalEmptyGraphic {
+  max-width: 420px;
+}
+
+.terminalEmptyGraphic svg {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .authPage {
@@ -522,6 +610,18 @@ pre {
   height: auto;
 }
 
+@keyframes heroFloat {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
 @media (max-width: 1180px) {
   .terminalGrid {
     grid-template-columns: 1fr;
@@ -547,6 +647,14 @@ pre {
   }
 
   .featureGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .heroLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .heroStats {
     grid-template-columns: 1fr;
   }
 

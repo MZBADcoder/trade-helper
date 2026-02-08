@@ -2,6 +2,7 @@ import React from "react";
 
 import { buildIndicators, listMarketBars, type IndicatorBundle, type MarketBar } from "@/entities/market";
 import { useSession } from "@/entities/session";
+import { TerminalEmptyGraphic } from "@/shared/ui";
 import {
   addWatchlist,
   deleteWatchlist,
@@ -319,7 +320,10 @@ export function TerminalPage() {
                 ))}
               </div>
             ) : (
-              <div className="muted">Open a symbol from watchlist to inspect details.</div>
+              <div className="emptyState">
+                <TerminalEmptyGraphic />
+                <p className="muted">Open a symbol from watchlist to inspect details.</p>
+              </div>
             )}
 
             {activeTicker && activeDetail?.loading ? <div className="muted">Loading bars and indicators...</div> : null}
