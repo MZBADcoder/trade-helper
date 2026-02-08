@@ -5,17 +5,30 @@ import { TerminalEmptyGraphic } from "@/shared/ui";
 import { type WatchlistItem } from "@/entities/watchlist";
 import { StockChartPanel } from "@/widgets/stock-chart";
 
-import { buildDemoBars, loadDemoWatchlist, saveDemoWatchlist } from "../lib/demoData";
+import {
+  buildDemoBars,
+  loadDemoWatchlist,
+  saveDemoWatchlist,
+  type DemoTimeframe
+} from "../lib/demoData";
 
 type DetailSnapshot = {
   bars: MarketBar[];
   indicators: IndicatorBundle | null;
+  timeframe: DemoTimeframe | null;
   loading: boolean;
   error: string | null;
   updatedAt: string | null;
 };
 
 const MAX_OPENED_TABS = 5;
+
+const TIMEFRAME_OPTIONS: Array<{ key: DemoTimeframe; label: string }> = [
+  { key: "realtime", label: "Realtime" },
+  { key: "day", label: "Day" },
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" }
+];
 
 export function DemoTerminalPage() {
   const [watchlist, setWatchlist] = React.useState<WatchlistItem[]>(() => loadDemoWatchlist());
@@ -27,7 +40,20 @@ export function DemoTerminalPage() {
   const [activeTicker, setActiveTicker] = React.useState<string | null>(null);
   const [tabMessage, setTabMessage] = React.useState<string | null>(null);
 
+  const [timeframe, setTimeframe] = React.useState<DemoTimeframe>("day");
+  const [lastStableTicker, setLastStableTicker] = React.useState<string | null>(null);
+
   const [detailsByTicker, setDetailsByTicker] = React.useState<Record<string, DetailSnapshot>>({});
+  const detailsRef = React.useRef<Record<string, DetailSnapshot>>({});
+  const activeTickerRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    detailsRef.current = detailsByTicker;
+  }, [detailsByTicker]);
+
+  React.useEffect(() => {
+    activeTickerRef.current = activeTicker;
+  }, [activeTicker]);
 
   React.useEffect(() => {
     saveDemoWatchlist(watchlist);
@@ -43,8 +69,9 @@ export function DemoTerminalPage() {
 
   const loadTickerDetail = React.useCallback(
     async (ticker: string, force = false) => {
-      const existing = detailsByTicker[ticker];
-      if (!force && existing?.bars?.length) {
+      const existing = detailsRef.current[ticker];
+      const isCurrentTimeframe = existing?.timeframe === timeframe;
+      if (!force && isCurrentTimeframe && existing?.bars?.length) {
         return;
       }
 
@@ -53,21 +80,23 @@ export function DemoTerminalPage() {
         [ticker]: {
           bars: prev[ticker]?.bars ?? [],
           indicators: prev[ticker]?.indicators ?? null,
+          timeframe,
           loading: true,
           error: null,
           updatedAt: prev[ticker]?.updatedAt ?? null
         }
       }));
 
-      await delay(160);
+      await delay(150);
 
       try {
-        const bars = buildDemoBars(ticker, 300);
+        const bars = buildDemoBars(ticker, timeframe);
         setDetailsByTicker((prev) => ({
           ...prev,
           [ticker]: {
             bars,
             indicators: buildIndicators(bars),
+            timeframe,
             loading: false,
             error: null,
             updatedAt: new Date().toISOString()
@@ -79,6 +108,7 @@ export function DemoTerminalPage() {
           [ticker]: {
             bars: prev[ticker]?.bars ?? [],
             indicators: prev[ticker]?.indicators ?? null,
+            timeframe,
             loading: false,
             error: error?.message ?? `Failed to load ${ticker}`,
             updatedAt: prev[ticker]?.updatedAt ?? null
@@ -86,8 +116,14 @@ export function DemoTerminalPage() {
         }));
       }
     },
-    [detailsByTicker]
+    [timeframe]
   );
+
+  React.useEffect(() => {
+    if (activeTickerRef.current) {
+      void loadTickerDetail(activeTickerRef.current, true);
+    }
+  }, [timeframe, loadTickerDetail]);
 
   function openTicker(ticker: string) {
     const normalized = ticker.toUpperCase();
@@ -117,7 +153,7 @@ export function DemoTerminalPage() {
   function closeTicker(ticker: string) {
     setOpenTickers((prev) => {
       const next = prev.filter((item) => item !== ticker);
-      if (activeTicker === ticker) {
+      if (activeTickerRef.current === ticker) {
         setActiveTicker(next[next.length - 1] ?? null);
       }
       return next;
@@ -148,13 +184,32 @@ export function DemoTerminalPage() {
     const next = watchlist.filter((item) => item.ticker !== ticker);
     setWatchlist(next);
     setOpenTickers((prev) => prev.filter((item) => item !== ticker));
-    if (activeTicker === ticker) {
+    if (activeTickerRef.current === ticker) {
       setActiveTicker(null);
     }
   }
 
   const activeDetail = activeTicker ? detailsByTicker[activeTicker] : null;
-  const latestBar = activeDetail?.bars.at(-1);
+  const activeHasData = Boolean(activeTicker && activeDetail?.bars.length && activeDetail.indicators);
+  const displayTicker = activeTicker ? (activeHasData ? activeTicker : lastStableTicker) : null;
+  const displayDetail = displayTicker ? detailsByTicker[displayTicker] : null;
+  const displayRenderable = displayTicker && displayDetail?.bars.length && displayDetail.indicators
+    ? {
+      ticker: displayTicker,
+      bars: displayDetail.bars,
+      indicators: displayDetail.indicators,
+      updatedAt: displayDetail.updatedAt
+    }
+    : null;
+  const latestBar = displayRenderable?.bars.at(-1);
+  const hasDisplayData = Boolean(displayRenderable);
+  const showRefreshBadge = Boolean(activeTicker && activeDetail?.loading && displayRenderable);
+
+  React.useEffect(() => {
+    if (activeHasData && activeTicker) {
+      setLastStableTicker(activeTicker);
+    }
+  }, [activeHasData, activeTicker]);
 
   return (
     <main className="terminalPage">
@@ -167,6 +222,7 @@ export function DemoTerminalPage() {
           <span className="pill">Session: Demo</span>
           <span className="pill">Data: Local synthetic market bars</span>
           <span className="pill">Opened tabs: {openTickers.length}/{MAX_OPENED_TABS}</span>
+          <span className="pill">TF: {timeframeLabel(timeframe)}</span>
         </div>
       </section>
 
@@ -255,6 +311,19 @@ export function DemoTerminalPage() {
           </div>
 
           <div className="panelBody detailBody">
+            <div className="timeframeRow">
+              {TIMEFRAME_OPTIONS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`timeframeBtn ${timeframe === item.key ? "timeframeBtnActive" : ""}`}
+                  onClick={() => setTimeframe(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
             {openTickers.length ? (
               <div className="tabRow">
                 {openTickers.map((ticker) => (
@@ -295,24 +364,30 @@ export function DemoTerminalPage() {
               </div>
             )}
 
-            {activeTicker && activeDetail?.loading ? <div className="muted">Loading demo bars and indicators...</div> : null}
+            {activeTicker && activeDetail?.loading && !hasDisplayData ? <div className="muted">Loading demo bars and indicators...</div> : null}
             {activeTicker && activeDetail?.error ? <div className="errorText">{activeDetail.error}</div> : null}
 
-            {activeTicker && activeDetail?.bars.length && activeDetail.indicators ? (
-              <>
+            {displayRenderable ? (
+              <div className="detailRenderStack">
+                {showRefreshBadge ? (
+                  <div className="detailLoadingBadge">
+                    {activeTicker !== displayRenderable.ticker ? `Loading ${activeTicker}, showing ${displayRenderable.ticker}` : `Refreshing ${activeTicker}`}
+                  </div>
+                ) : null}
                 <div className="metricRow">
+                  <MetricCard label="TF" value={timeframeLabel(timeframe)} />
                   <MetricCard label="Last" value={toPrice(latestBar?.close)} />
                   <MetricCard label="High" value={toPrice(latestBar?.high)} />
                   <MetricCard label="Low" value={toPrice(latestBar?.low)} />
                   <MetricCard label="Volume" value={toVolume(latestBar?.volume)} />
-                  <MetricCard label="Updated" value={formatTime(activeDetail.updatedAt)} />
+                  <MetricCard label="Updated" value={formatTime(displayRenderable.updatedAt)} />
                 </div>
                 <StockChartPanel
-                  ticker={activeTicker}
-                  bars={activeDetail.bars}
-                  indicators={activeDetail.indicators}
+                  ticker={displayRenderable.ticker}
+                  bars={displayRenderable.bars}
+                  indicators={displayRenderable.indicators}
                 />
-              </>
+              </div>
             ) : null}
           </div>
         </section>
@@ -345,6 +420,10 @@ function toVolume(value: number | undefined): string {
 function formatTime(value: string | null): string {
   if (!value) return "-";
   return new Date(value).toLocaleTimeString();
+}
+
+function timeframeLabel(timeframe: DemoTimeframe): string {
+  return TIMEFRAME_OPTIONS.find((item) => item.key === timeframe)?.label ?? timeframe;
 }
 
 function delay(ms: number): Promise<void> {

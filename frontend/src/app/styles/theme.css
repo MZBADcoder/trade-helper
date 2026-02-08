@@ -520,6 +520,55 @@ pre {
   gap: 12px;
 }
 
+.detailRenderStack {
+  position: relative;
+  display: grid;
+  gap: 12px;
+}
+
+.detailLoadingBadge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  border: 1px solid rgba(116, 184, 255, 0.54);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(8, 16, 29, 0.86);
+  color: #d1e2fc;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.timeframeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timeframeBtn {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 6px 10px;
+  background: rgba(12, 20, 35, 0.78);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.timeframeBtnActive {
+  border-color: rgba(89, 214, 176, 0.62);
+  background: rgba(89, 214, 176, 0.2);
+  box-shadow: 0 0 0 2px rgba(89, 214, 176, 0.14);
+}
+
 .tabRow {
   display: flex;
   gap: 8px;
@@ -554,7 +603,7 @@ pre {
 
 .metricRow {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -597,6 +646,14 @@ pre {
   background: rgba(19, 28, 46, 0.72);
 }
 
+.chartHeaderSplit {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .chartTitle {
   font-family: var(--mono);
   font-size: 11px;
@@ -604,10 +661,189 @@ pre {
   text-transform: uppercase;
 }
 
+.chartTitleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chartHeaderControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chartToggleGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chartToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 3px 8px;
+  background: rgba(8, 14, 26, 0.82);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.chartToggleSwatch {
+  width: 12px;
+  height: 2px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.chartToggleSwatchMa20 {
+  background: #f9d66b;
+}
+
+.chartToggleSwatchMa50 {
+  background: #ef8ea7;
+}
+
+.chartToggleSwatchBoll {
+  background: #5c8cf7;
+}
+
+.chartToggleBtnActive {
+  border-color: rgba(116, 184, 255, 0.62);
+  color: #d5e3f8;
+  background: rgba(116, 184, 255, 0.2);
+}
+
+.chartIndicatorRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chartIndicatorTag {
+  border: 1px solid rgba(116, 184, 255, 0.4);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #ceddf3;
+  background: rgba(7, 14, 26, 0.72);
+}
+
 .chartSvg {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.chartSvgInteractive {
+  cursor: crosshair;
+}
+
+.chartXAxis {
+  position: relative;
+  border-top: 1px solid rgba(148, 168, 202, 0.2);
+  background: rgba(6, 12, 24, 0.86);
+  height: 26px;
+}
+
+.chartXAxisTick {
+  position: absolute;
+  bottom: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.chartXAxisTickStart {
+  transform: translateX(0);
+  align-items: flex-start;
+}
+
+.chartXAxisTickMid {
+  transform: translateX(-50%);
+  align-items: center;
+}
+
+.chartXAxisTickEnd {
+  transform: translateX(-100%);
+  align-items: flex-end;
+}
+
+.chartXAxisMark {
+  width: 1px;
+  height: 6px;
+  background: rgba(178, 198, 228, 0.6);
+}
+
+.chartXAxisLabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #adc2e5;
+  white-space: nowrap;
+}
+
+.infoHint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(116, 184, 255, 0.48);
+  border-radius: 50%;
+  background: rgba(116, 184, 255, 0.14);
+  color: #d3e2f8;
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: help;
+}
+
+.infoHintCard {
+  position: absolute;
+  top: 21px;
+  left: 0;
+  transform: none;
+  width: min(280px, calc(100vw - 44px));
+  border: 1px solid rgba(116, 184, 255, 0.4);
+  border-radius: 10px;
+  background: rgba(8, 14, 24, 0.96);
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 6;
+}
+
+.infoHint:hover .infoHintCard,
+.infoHint:focus-within .infoHintCard {
+  opacity: 1;
+}
+
+.infoHintTitle {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #d4e4fc;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.infoHintText {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #b8cce9;
 }
 
 @keyframes heroFloat {
@@ -628,7 +864,7 @@ pre {
   }
 
   .metricRow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -664,5 +900,13 @@ pre {
 
   .authCard {
     padding: 18px;
+  }
+
+  .metricRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .infoHintCard {
+    width: min(240px, calc(100vw - 28px));
   }
 }
