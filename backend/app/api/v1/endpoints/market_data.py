@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_current_user, get_market_data_service
 from app.api.v1.dto.market_data import MarketBarOut
+from app.api.v1.dto.mappers import to_market_bar_out
 from app.application.market_data.service import DefaultMarketDataApplicationService
 from app.domain.auth.schemas import User
 
@@ -25,7 +26,7 @@ def list_bars(
 ) -> list[MarketBarOut]:
     _ = current_user
     try:
-        return service.list_bars(
+        bars = service.list_bars(
             ticker=ticker,
             timespan=timespan,
             multiplier=multiplier,
@@ -33,5 +34,6 @@ def list_bars(
             end_date=to_date,
             limit=limit,
         )
+        return [to_market_bar_out(bar) for bar in bars]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

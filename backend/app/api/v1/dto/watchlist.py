@@ -14,3 +14,7 @@ class WatchlistItemOut(BaseModel):
 
     ticker: str
     created_at: datetime | None = None
+
+
+class WatchlistItemDeletedOut(BaseModel):
+    deleted: str
