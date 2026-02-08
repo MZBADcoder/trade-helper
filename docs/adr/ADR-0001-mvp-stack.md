@@ -17,6 +17,7 @@
 - Broker：Redis
 - 存储：Postgres
 - 部署：单机 Docker Compose
+- 后端依赖管理: poetry
 
 ## 原因
 

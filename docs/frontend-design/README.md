@@ -1,4 +1,4 @@
-# Frontend Design Index
+# 前端设计索引
 
 ## 目标
 
@@ -6,7 +6,7 @@
 
 ## 清单
 
-- Prototype V1 (home/login/terminal/demo)
+- 原型 V1（home/login/terminal/demo）
   - `/Users/mz/pmf/trader-helper/docs/frontend-design/prototype-v1.md`
 
 ## 约定

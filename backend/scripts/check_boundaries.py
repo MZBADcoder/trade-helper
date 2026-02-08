@@ -35,7 +35,16 @@ WORKER_BANNED_EXTERNAL = {
     "redis",
 }
 
-LAYER_NAMES = ("api", "worker", "application", "domain", "infrastructure")
+LAYER_NAMES = ("api", "worker", "tasks", "application", "domain", "infrastructure")
+
+NO_INTERFACE_IMPORT_RULES = {
+    ("typing", "Protocol"),
+    ("typing_extensions", "Protocol"),
+    ("abc", "ABC"),
+    ("abc", "ABCMeta"),
+    ("abc", "abstractmethod"),
+}
+NO_INTERFACE_BASES = {"Protocol", "ABC", "ABCMeta"}
 
 
 @dataclass(frozen=True)
@@ -69,6 +78,50 @@ def _extract_imports(py_path: Path) -> list[ImportRef]:
             if node.module:
                 found.append(ImportRef(module=node.module, lineno=node.lineno))
     return found
+
+
+def _extract_no_interface_violations(py_path: Path) -> list[str]:
+    tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+    violations: list[str] = []
+    banned_base_aliases = set(NO_INTERFACE_BASES)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                if (node.module, alias.name) in NO_INTERFACE_IMPORT_RULES:
+                    local_name = alias.asname or alias.name
+                    violations.append(
+                        f"{py_path}:{node.lineno} no-interfaces rule: forbidden import "
+                        f"'{node.module}.{alias.name}'"
+                    )
+                    if alias.name in NO_INTERFACE_BASES:
+                        banned_base_aliases.add(local_name)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        for base in node.bases:
+            symbol = _base_symbol(base)
+            if symbol is None:
+                continue
+            if symbol in banned_base_aliases or symbol in NO_INTERFACE_BASES:
+                violations.append(
+                    f"{py_path}:{node.lineno} no-interfaces rule: class '{node.name}' "
+                    f"must not inherit from '{symbol}'"
+                )
+
+    return violations
+
+
+def _base_symbol(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Subscript):
+        return _base_symbol(node.value)
+    return None
 
 
 def _is_internal_layer(top: str) -> bool:
@@ -144,6 +197,8 @@ def main() -> int:
     violations: list[str] = []
     py_files = sorted(p for p in pkg_root.rglob("*.py") if p.is_file())
     for py_file in py_files:
+        violations.extend(_extract_no_interface_violations(py_file))
+
         layer = _classify_layer(py_file, pkg_root=pkg_root)
         if layer is None:
             continue
@@ -165,6 +220,10 @@ def main() -> int:
                 violations.append(
                     f"{py_file}:{imp.lineno} worker imports banned external module: {imp.module}"
                 )
+            if layer == "tasks" and top in WORKER_BANNED_EXTERNAL:
+                violations.append(
+                    f"{py_file}:{imp.lineno} tasks imports banned external module: {imp.module}"
+                )
 
             # Internal direction constraints
             if layer == "domain" and _is_internal_layer(top) and top != "domain":
@@ -181,6 +240,12 @@ def main() -> int:
                 violations.append(f"{py_file}:{imp.lineno} api must not depend on infrastructure: {imp.module}")
             if layer == "worker" and _is_internal_layer(top) and top == "infrastructure":
                 violations.append(f"{py_file}:{imp.lineno} worker must not depend on infrastructure: {imp.module}")
+            if layer == "worker" and _is_internal_layer(top) and top == "api":
+                violations.append(f"{py_file}:{imp.lineno} worker must not depend on api: {imp.module}")
+            if layer == "tasks" and _is_internal_layer(top) and top in {"infrastructure", "api"}:
+                violations.append(
+                    f"{py_file}:{imp.lineno} tasks must not depend on {top}: {imp.module}"
+                )
 
     if violations:
         print("Boundary violations found:\n")

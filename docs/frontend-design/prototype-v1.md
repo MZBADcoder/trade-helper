@@ -1,50 +1,54 @@
-# Frontend Prototype V1 (Trader Terminal)
+# 前端原型 V1（Trader Terminal）
 
-## 1. Scope
+## 1. 范围
 
-This prototype covers:
-- A trader-style landing page with a clear login entry.
-- Login/register flow.
-- Authenticated watchlist management.
-- Stock list and detail interaction.
-- Up to 5 opened stock detail tabs with quick switching.
-- Candlestick + baseline indicators in detail view: MA, MACD, BOLL, RSI, VOL.
+本次原型覆盖：
 
-This prototype intentionally does not include IV monitoring UI yet.
+- 具有交易风格的首页，并提供明确的登录入口。
+- 登录/注册流程。
+- 鉴权后的自选股管理。
+- 股票列表与详情联动交互。
+- 最多打开 5 个股票详情标签页并快速切换。
+- 详情页展示 K 线与基础指标：MA、MACD、BOLL、RSI、VOL。
 
-## 2. Information Architecture
+本次原型**暂不包含** IV 监控相关 UI。
 
-Routes:
-- `/` landing page (public)
-- `/login` login/register page (public)
-- `/demo` demo terminal (public, local synthetic data)
-- `/terminal` trader terminal (authenticated)
+## 2. 信息架构
 
-Core modules:
-- `entities/session`: auth token, current user session state
-- `entities/watchlist`: add/list/delete watchlist tickers
-- `entities/market`: fetch bars + compute indicators
-- `pages/home`: marketing + CTA
-- `pages/login`: auth entry
-- `pages/demo-terminal`: design/prototype route decoupled from real backend pages
-- `pages/terminal`: watchlist, opened tabs, detail charts and indicators
-- `widgets/topbar`: global navigation + auth actions
-- `widgets/stock-chart`: SVG candlestick and indicator charts
+路由：
 
-## 3. UX Flow
+- `/` 首页（公开）
+- `/login` 登录/注册页（公开）
+- `/demo` demo terminal（公开，本地模拟数据）
+- `/terminal` trader terminal（需鉴权）
 
-1. User enters `/` and sees market-style hero and CTA.
-2. User clicks `Login` to `/login`.
-3. User can alternatively click `Try Demo` to `/demo`.
-4. On login success, redirect to `/terminal`.
-5. User adds ticker to watchlist.
-6. User clicks a ticker in watchlist to open detail tab.
-7. Terminal keeps at most 5 opened tabs; user switches between tabs quickly.
-8. Detail panel displays K-line and indicators for selected ticker.
+核心模块：
 
-## 4. Backend API Mapping
+- `entities/session`：鉴权 token 与当前用户会话状态
+- `entities/watchlist`：自选股增/查/删
+- `entities/market`：K 线数据获取与指标计算
+- `pages/home`：营销信息与 CTA
+- `pages/login`：鉴权入口
+- `pages/demo-terminal`：与真实后端解耦的设计/原型路由
+- `pages/terminal`：自选股、已打开标签、详情图表与指标
+- `widgets/topbar`：全局导航与鉴权动作
+- `widgets/stock-chart`：SVG K 线与指标图
 
-Existing APIs are enough for this prototype:
+## 3. 交互流程
+
+1. 用户进入 `/`，看到市场风格首页与 CTA。
+2. 用户点击 `Login` 跳转至 `/login`。
+3. 用户也可以点击 `Try Demo` 进入 `/demo`。
+4. 登录成功后跳转至 `/terminal`。
+5. 用户向自选股中添加 ticker。
+6. 用户点击自选股 ticker 打开详情标签。
+7. 终端最多保留 5 个已打开标签，并支持快速切换。
+8. 详情区展示所选 ticker 的 K 线与指标。
+
+## 4. 后端 API 映射
+
+当前原型所需接口均已存在：
+
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
 - `GET /api/v1/auth/me`
@@ -53,32 +57,35 @@ Existing APIs are enough for this prototype:
 - `DELETE /api/v1/watchlist/{ticker}`
 - `GET /api/v1/market-data/bars`
 
-Demo route (`/demo`) is intentionally backend-independent for faster design iteration.
+`/demo` 路由有意保持后端无依赖，以便快速迭代设计与交互。
 
-Auth mode:
-- Use Bearer token from login response.
-- Include `Authorization: Bearer <token>` for watchlist and market-data requests.
+鉴权方式：
 
-## 5. Indicator Strategy
+- 使用登录返回的 Bearer token。
+- 对 watchlist 和 market-data 请求带上 `Authorization: Bearer <token>`。
 
-No new backend endpoint is required in V1.
-Indicators are computed client-side from OHLCV bars:
-- MA(20), MA(50)
+## 5. 指标策略
+
+V1 不新增后端指标接口。  
+指标由前端基于 OHLCV K 线数据本地计算：
+
+- MA(20)、MA(50)
 - MACD(12,26,9)
 - BOLL(20,2)
 - RSI(14)
-- VOL (raw volume bars)
+- VOL（原始成交量柱）
 
-## 6. Known Gaps for V2
+## 6. V2 已知缺口
 
-Potential backend additions for next phase:
-- Server-computed indicator endpoint to keep formulas consistent across clients.
-- Multi-timeframe bars endpoint with normalized payload for charting.
-- IV-specific endpoint (rank/percentile by ticker and contract buckets).
+下一阶段可考虑新增后端能力：
 
-## 7. Acceptance for this prototype
+- 服务端指标计算接口，保证多端公式一致。
+- 多周期 K 线标准化接口，降低前端图表适配成本。
+- IV 专用接口（按 ticker 与合约分桶返回 rank/percentile）。
 
-- User can login and stay authenticated after refresh.
-- Watchlist CRUD works under auth.
-- Clicking ticker opens detail, max 5 tabs, and supports tab switching.
-- Detail view shows candlestick + MA/MACD/BOLL/RSI/VOL.
+## 7. 本原型验收标准
+
+- 用户可登录，刷新后保持登录态。
+- 鉴权下自选股增删查可用。
+- 点击 ticker 可打开详情，最多 5 标签，并支持切换。
+- 详情区可展示 K 线 + MA/MACD/BOLL/RSI/VOL。
