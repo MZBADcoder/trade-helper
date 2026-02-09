@@ -1,5 +1,11 @@
 # 前端原型 V1（Trader Terminal）
 
+## 0. Context
+
+- Source PRD: `/Users/mz/pmf/trader-helper/docs/prd/PRD-0001-market-watch.md`
+- Related BE: `/Users/mz/pmf/trader-helper/docs/backend-evolution/BE-0001-prd-0001-market-watch-api-breakdown.md`
+- Out of scope（本原型不覆盖）：`PRD-0002` IV 监控与告警 UI
+
 ## 1. 范围
 
 本次原型覆盖：

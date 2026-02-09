@@ -8,8 +8,10 @@
 
 ## 清单
 
-- `PRD-0001` IV Percentile 告警（Polygon.io，美股期权，Web MVP）
-  - `/Users/mz/pmf/trader-helper/docs/prd/PRD-0001-iv-percentile-alerts.md`
+- `PRD-0001` 实时行情 / 数据观察（Stocks + Options，Polygon.io / Massive.com，Web Terminal MVP）
+  - `/Users/mz/pmf/trader-helper/docs/prd/PRD-0001-market-watch.md`
+- `PRD-0002` IV Percentile 告警（Polygon.io / Massive.com，美股期权，暂缓：待后续 thread）
+  - `/Users/mz/pmf/trader-helper/docs/prd/PRD-0002-iv-percentile-alerts.md`
 
 ## 写作要求
 

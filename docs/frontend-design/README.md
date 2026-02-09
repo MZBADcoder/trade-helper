@@ -6,7 +6,7 @@
 
 ## 清单
 
-- 原型 V1（home/login/terminal/demo）
+- 原型 V1（home/login/terminal/demo，对应 PRD-0001 行情观察）
   - `/Users/mz/pmf/trader-helper/docs/frontend-design/prototype-v1.md`
 
 ## 约定
