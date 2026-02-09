@@ -62,19 +62,41 @@ class FakeUoW:
 
 
 class FakePolygonClient:
-    def __init__(self, payload: dict) -> None:
+    def __init__(self, payload: list[dict]) -> None:
         self.payload = payload
         self.called = False
 
-    def get(self, path: str, params: dict | None = None) -> dict:
-        _ = (path, params)
+    def list_aggs(
+        self,
+        *,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_date: str,
+        to_date: str,
+        adjusted: bool = True,
+        sort: str = "asc",
+        limit: int = 50000,
+    ) -> list[dict]:
+        _ = (ticker, multiplier, timespan, from_date, to_date, adjusted, sort, limit)
         self.called = True
         return self.payload
 
 
 class FailPolygonClient:
-    def get(self, path: str, params: dict | None = None) -> dict:
-        _ = (path, params)
+    def list_aggs(
+        self,
+        *,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_date: str,
+        to_date: str,
+        adjusted: bool = True,
+        sort: str = "asc",
+        limit: int = 50000,
+    ) -> list[dict]:
+        _ = (ticker, multiplier, timespan, from_date, to_date, adjusted, sort, limit)
         raise AssertionError("Polygon client should not be called")
 
 
@@ -119,20 +141,18 @@ def test_list_bars_uses_cache_when_coverage_sufficient() -> None:
 
 
 def test_list_bars_fetches_polygon_when_cache_missing() -> None:
-    payload = {
-        "results": [
-            {
-                "t": 1704153600000,
-                "o": 10,
-                "h": 12,
-                "l": 9,
-                "c": 11,
-                "v": 1000,
-                "vw": 10.5,
-                "n": 50,
-            }
-        ]
-    }
+    payload = [
+        {
+            "t": 1704153600000,
+            "o": 10,
+            "h": 12,
+            "l": 9,
+            "c": 11,
+            "v": 1000,
+            "vw": 10.5,
+            "n": 50,
+        }
+    ]
     repo = FakeMarketDataRepository(bars=[], coverage=None)
     polygon = FakePolygonClient(payload)
     service = DefaultMarketDataApplicationService(

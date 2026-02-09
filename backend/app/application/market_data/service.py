@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from app.core.config import settings
 from app.domain.market_data.schemas import MarketBar
 from app.infrastructure.clients.polygon import PolygonClient
+from app.infrastructure.clients.polygon_mapper import map_polygon_aggregates_to_market_bars
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 
@@ -126,43 +127,22 @@ class DefaultMarketDataApplicationService:
         start_date: date,
         end_date: date,
     ) -> list[MarketBar]:
-        path = (
-            f"/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/"
-            f"{start_date.isoformat()}/{end_date.isoformat()}"
+        aggregates = self._polygon_client.list_aggs(
+            ticker=ticker,
+            multiplier=multiplier,
+            timespan=timespan,
+            from_date=start_date.isoformat(),
+            to_date=end_date.isoformat(),
+            adjusted=True,
+            sort="asc",
+            limit=50000,
         )
-        payload = self._polygon_client.get(
-            path,
-            params={
-                "adjusted": "true",
-                "sort": "asc",
-                "limit": 50000,
-            },
+        return map_polygon_aggregates_to_market_bars(
+            ticker=ticker,
+            timespan=timespan,
+            multiplier=multiplier,
+            aggregates=aggregates,
         )
-
-        results = payload.get("results") or []
-        bars: list[MarketBar] = []
-        for item in results:
-            timestamp_ms = item.get("t")
-            if timestamp_ms is None:
-                continue
-            start_at = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
-            bars.append(
-                MarketBar(
-                    ticker=ticker,
-                    timespan=timespan,
-                    multiplier=multiplier,
-                    start_at=start_at,
-                    open=float(item.get("o", 0.0)),
-                    high=float(item.get("h", 0.0)),
-                    low=float(item.get("l", 0.0)),
-                    close=float(item.get("c", 0.0)),
-                    volume=float(item.get("v", 0.0)),
-                    vwap=float(item["vw"]) if item.get("vw") is not None else None,
-                    trades=int(item["n"]) if item.get("n") is not None else None,
-                )
-            )
-
-        return bars
 
 
 def _require_market_data_repo(uow: SqlAlchemyUnitOfWork):

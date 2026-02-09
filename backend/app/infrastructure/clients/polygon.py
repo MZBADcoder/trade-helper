@@ -1,22 +1,49 @@
 from __future__ import annotations
 
-import httpx
+from collections.abc import Iterable
+from typing import Any
+
+try:
+    from massive import RESTClient as SDKRestClient
+except ImportError:
+    try:
+        from polygon import RESTClient as SDKRestClient  # type: ignore[no-redef]
+    except ImportError:
+        SDKRestClient = None  # type: ignore[assignment]
 
 
 class PolygonClient:
-    def __init__(self, api_key: str, base_url: str = "https://api.polygon.io") -> None:
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-
-    def get(self, path: str, params: dict | None = None) -> dict:
-        if not self.api_key:
+    def __init__(self, api_key: str, base_url: str = "https://api.massive.com") -> None:
+        _ = base_url
+        if not api_key:
             raise ValueError("Polygon API key is not configured")
 
-        url = path if path.startswith("http") else f"{self.base_url}{path}"
-        query_params = dict(params or {})
-        query_params.setdefault("apiKey", self.api_key)
+        self.api_key = api_key
+        if SDKRestClient is None:
+            raise RuntimeError(
+                "Polygon SDK is not installed. Add dependency 'massive' (or compatible 'polygon')."
+            )
+        self._client = SDKRestClient(api_key)
 
-        with httpx.Client(timeout=20.0) as client:
-            response = client.get(url, params=query_params)
-            response.raise_for_status()
-            return response.json()
+    def list_aggs(
+        self,
+        *,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_date: str,
+        to_date: str,
+        adjusted: bool = True,
+        sort: str = "asc",
+        limit: int = 50000,
+    ) -> Iterable[Any]:
+        return self._client.list_aggs(
+            ticker,
+            multiplier,
+            timespan,
+            from_date,
+            to_date,
+            adjusted=adjusted,
+            sort=sort,
+            limit=limit,
+        )
