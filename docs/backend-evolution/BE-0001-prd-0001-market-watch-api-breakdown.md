@@ -58,7 +58,7 @@
 - `WS /market-data/stream`
   - 订阅策略：仅允许订阅「watchlist + 当前选中合约」范围，并有服务端上限保护
   - 消息：统一 envelope（`type` + `data` + `ts`），前端按 `type` 路由处理
-  - 鉴权：WebSocket 握手携带 JWT（query/header），服务端校验失败立即拒绝
+  - 鉴权：WebSocket 握手必须携带 JWT。浏览器 `/terminal` 仅使用 `query` / `cookie` / `Sec-WebSocket-Protocol` 传递令牌；非浏览器客户端可选 `header`。服务端校验失败立即拒绝
   - 心跳：服务端定时 ping，客户端需响应，超时清理连接
 
 ## 5. 协同加载案例（历史 REST + 实时 WS）
@@ -69,7 +69,7 @@
    - `GET /api/v1/market-data/bars`：拉取 `AAPL` 最近 N 根分钟线（用于图表历史窗口）。
    - `GET /api/v1/market-data/snapshots?tickers=...`：批量拉取 watchlist 最新价（用于列表区）。
 2) 建立 WS 订阅：
-   - 前端建立 `WS /api/v1/market-data/stream`，提交 `subscribe(AAPL)`。
+   - 前端通过浏览器可用载体（推荐 `query` 或 `cookie`）建立 `WS /api/v1/market-data/stream`，提交 `subscribe(AAPL)`。
    - 服务端验证 JWT、订阅权限与订阅数量上限。
 3) 增量合并：
    - API 持续推送实时事件；前端将事件并入当前图表最后一根或新增新 bar，保持图表“滚动更新”。

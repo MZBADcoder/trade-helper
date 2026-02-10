@@ -62,7 +62,9 @@
 - **上游连接策略**：每类资产（stocks/options）保持最少必要的 Polygon 上游连接，集中订阅与复用，避免每个客户端独立连上游。  
 - **消息分发**：`realtime` 进程将上游消息统一封装为 `type/data/ts/source`，通过 Redis Pub/Sub 广播至 API 实例，再由 API 对各自 WebSocket 客户端扇出。  
 - **鉴权与安全**：
-  - WebSocket 连接建立时必须携带 JWT（query/header），服务端校验后再允许订阅。
+  - WebSocket 连接建立时必须携带 JWT。
+  - 对 **浏览器 `/terminal` 路径**，令牌载体限定为浏览器可发送的方式（`query` / `cookie` / `Sec-WebSocket-Protocol`），**不依赖自定义 header**。
+  - 非浏览器客户端可选 `header` 传递令牌，但需与浏览器路径的鉴权实现区分。
   - 心跳/空闲检测机制，清理断线连接。
 - **扩展性**：
   - 负载均衡器支持 WebSocket 升级连接。
@@ -76,7 +78,7 @@
    - 前端先请求 `GET /api/v1/market-data/bars?ticker=AAPL&timespan=minute&from=...&to=...` 拉取一段历史 K 线（例如最近 300 根）。
    - 同时请求 `GET /api/v1/market-data/snapshots?tickers=AAPL,NVDA,...` 批量加载 watchlist 最新快照，先把列表与图表首屏渲染出来。
 2. **建立实时通道（WebSocket）**
-   - 前端携带 JWT 连接 `WS /api/v1/market-data/stream`，发送订阅指令（`AAPL` + 当前页面关注合约）。
+   - 前端通过浏览器可用载体（推荐 `query` 或 `cookie`）携带 JWT 连接 `WS /api/v1/market-data/stream`，发送订阅指令（`AAPL` + 当前页面关注合约）。
    - API 校验订阅权限与上限，注册连接并开始接收该用户所需实时流。
 3. **实时增量对齐历史窗口**
    - `realtime` 进程从 Polygon 收到 `AAPL` tick/quote/trade 后，标准化为统一 envelope 并通过 Redis 广播。
