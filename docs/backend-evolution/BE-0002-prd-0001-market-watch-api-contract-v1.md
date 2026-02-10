@@ -1,22 +1,22 @@
 # BE-0002 - PRD-0001 行情接口合同设计（v1）
 
-## 1. 背景与范围
+## 1. Context
 
-- 来源 PRD：
+- Source PRD:
   - `docs/prd/PRD-0001-market-watch.md`
-- 关联 ADR：
+- Related ADR:
   - `docs/adr/ARCHITECTURE-BASELINE.md`
   - `docs/adr/ADR-0001-realtime-market-data-streaming.md`
-- 范围边界：
-  - 本文仅定义接口合同（HTTP/WS 入参、出参、错误码、鉴权与配额语义）。
-  - 不包含实现细节（不涉及 repository、cache key、worker 代码）。
-  - 覆盖 BE-0001 已识别的新增/调整接口，作为前后端联调基线。
+- Scope boundary:
+  - 本文仅定义接口合同（HTTP/WS 入参与出参、错误码、鉴权与配额语义）
+  - 不包含实现细节（不涉及具体 repository、cache key、worker 代码）
+  - 覆盖 BE-0001 中标记的新增/调整接口，作为后续开发与前端联调基线
 
-## 2. 接口变更清单
+## 2. API Changes
 
-### 2.1 新增接口
+### 2.1 New APIs
 
-| Method | Path | 用途 | 鉴权 | 优先级 |
+| Method | Path | Purpose | Auth | Priority |
 |---|---|---|---|---|
 | GET | `/api/v1/market-data/snapshots` | 批量获取 ticker 最新快照（watchlist 首屏/轮询兜底） | Yes | P0 |
 | GET | `/api/v1/options/expirations` | 获取某 underlying 可选到期日列表 | Yes | P0 |
@@ -24,24 +24,26 @@
 | GET | `/api/v1/options/contracts/{option_ticker}` | 获取单个期权合约详情与行情快照 | Yes | P1 |
 | WS | `/api/v1/market-data/stream` | 订阅股票/期权实时增量消息 | Yes | P0 |
 
-### 2.2 调整接口
+### 2.2 API Updates
 
-| Method | Path | 变更内容 | 兼容性 | 优先级 |
+| Method | Path | Change | Compatibility | Priority |
 |---|---|---|---|---|
 | GET | `/api/v1/market-data/bars` | 固化参数枚举、窗口限制、错误码与分页语义 | Compatible（新增校验不破坏已有成功路径） | P1 |
 | GET | `/api/v1/market-data/bars` | 明确支持 `ticker`（股票）与 `option_ticker`（期权）二选一 | Compatible（保持 ticker 路径可用） | P2 |
 
-### 2.3 废弃接口
+### 2.3 Deprecated APIs
 
-当前版本无废弃接口。
+| Method | Path | Replacement | Removal Plan |
+|---|---|---|---|
+| N/A | N/A | N/A | 当前版本无废弃接口 |
 
-## 3. 合同细节
+## 3. Contract Details
 
-### 3.1 通用约定
+## 3.1 通用约定
 
 - 鉴权：除 `health/auth` 外，全部接口要求 Bearer JWT。
-- 时间格式：统一 UTC ISO8601（示例：`2026-02-10T14:31:22Z`）。
-- REST 错误响应统一结构：
+- 时间格式：统一 UTC ISO8601（例如 `2026-02-10T14:31:22Z`）。
+- 响应 envelope：REST 成功响应直接返回业务 JSON；失败响应统一：
 
 ```json
 {
@@ -60,7 +62,7 @@
 
 ### 3.2 `GET /api/v1/market-data/snapshots`
 
-#### 请求
+#### Request
 
 Query 参数：
 
@@ -68,7 +70,7 @@ Query 参数：
   - 去重后数量上限：`50`
   - 单个 ticker 格式：`^[A-Z.]{1,15}$`
 
-#### 响应（200）
+#### Response 200
 
 ```json
 {
@@ -90,7 +92,7 @@ Query 参数：
 }
 ```
 
-#### 错误码
+#### Error
 
 - `400 MARKET_DATA_INVALID_TICKERS`
 - `400 MARKET_DATA_TOO_MANY_TICKERS`
@@ -100,7 +102,7 @@ Query 参数：
 
 ### 3.3 `GET /api/v1/options/expirations`
 
-#### 请求
+#### Request
 
 Query 参数：
 
@@ -108,7 +110,7 @@ Query 参数：
 - `limit`：可选，默认 `12`，最大 `36`
 - `include_expired`：可选，默认 `false`
 
-#### 响应（200）
+#### Response 200
 
 ```json
 {
@@ -125,7 +127,7 @@ Query 参数：
 }
 ```
 
-#### 错误码
+#### Error
 
 - `400 OPTIONS_INVALID_UNDERLYING`
 - `400 OPTIONS_INVALID_LIMIT`
@@ -135,7 +137,7 @@ Query 参数：
 
 ### 3.4 `GET /api/v1/options/chain`
 
-#### 请求
+#### Request
 
 Query 参数：
 
@@ -147,7 +149,7 @@ Query 参数：
 - `limit`：可选，默认 `200`，最大 `500`
 - `cursor`：可选，服务端返回的游标
 
-#### 响应（200）
+#### Response 200
 
 ```json
 {
@@ -172,7 +174,7 @@ Query 参数：
 }
 ```
 
-#### 错误码
+#### Error
 
 - `400 OPTIONS_INVALID_EXPIRATION`
 - `400 OPTIONS_INVALID_STRIKE_RANGE`
@@ -183,7 +185,7 @@ Query 参数：
 
 ### 3.5 `GET /api/v1/options/contracts/{option_ticker}`
 
-#### 请求
+#### Request
 
 Path 参数：
 
@@ -193,7 +195,7 @@ Query 参数：
 
 - `include_greeks`：可选，默认 `true`
 
-#### 响应（200）
+#### Response 200
 
 ```json
 {
@@ -227,7 +229,7 @@ Query 参数：
 }
 ```
 
-#### 错误码
+#### Error
 
 - `400 OPTIONS_INVALID_TICKER`
 - `401 AUTH_UNAUTHORIZED`
@@ -236,7 +238,7 @@ Query 参数：
 
 ### 3.6 `GET /api/v1/market-data/bars`（补充合同）
 
-#### 请求
+#### Request
 
 Query 参数（v1 固化）：
 
@@ -247,14 +249,14 @@ Query 参数（v1 固化）：
 - `ticker`：股票代码，与 `option_ticker` 二选一
 - `option_ticker`：期权代码，与 `ticker` 二选一
 
-#### 响应（200，不变）
+#### Response 200（不变）
 
 保持现有 bars 列表结构，仅新增响应 header：
 
 - `X-Data-Source: CACHE|REST|DB`
 - `X-Partial-Range: true|false`
 
-#### 错误码
+#### Error
 
 - `400 MARKET_DATA_INVALID_TIMESPAN`
 - `400 MARKET_DATA_INVALID_RANGE`
@@ -330,46 +332,7 @@ Query 参数（v1 固化）：
 - 客户端需在 `10s` 内回应 `{"action":"ping"}` 或 pong 帧
 - 连续 `2` 次超时则关闭连接，close code `4408`
 
-### 3.8 OpenAPI/WS 联调补充（评审意见收敛）
-
-#### OpenAPI 示例片段（建议）
-
-```yaml
-paths:
-  /api/v1/market-data/snapshots:
-    get:
-      summary: 批量获取行情快照
-      parameters:
-        - in: query
-          name: tickers
-          required: true
-          schema:
-            type: string
-            example: AAPL,NVDA,TSLA
-      responses:
-        '200':
-          description: 成功
-        '400':
-          description: 参数错误
-        '401':
-          description: 未认证
-        '429':
-          description: 限流
-        '502':
-          description: 上游不可用
-```
-
-#### WS close code 对照表
-
-| close code | 场景 | 前端建议动作 |
-|---|---|---|
-| 4401 | JWT 缺失/无效/过期 | 刷新 token 并重连 |
-| 4403 | 订阅 symbol 不在授权范围 | 回退到 watchlist 默认订阅集 |
-| 4408 | 心跳超时 | 立即重连并触发短窗口补拉 |
-| 4413 | 触发订阅数量上限 | 减少订阅后重试 |
-| 4500 | 服务端内部错误 | 指数退避重连并显示降级状态 |
-
-## 4. 数据与任务影响
+## 4. Data/Task Impact
 
 - DB schema/index changes:
   - 本阶段无强制 DDL 变更；沿用现有 bars 存储策略
@@ -379,11 +342,11 @@ paths:
   - snapshots/expirations/chain/contracts 建议接入 Redis cache-aside
   - WS 依赖 Redis Pub/Sub 进行多实例广播
 
-## 5. 交付计划
+## 5. Delivery Plan
 
 1. Phase 1（接口定义冻结）
    - 固化 OpenAPI 字段、枚举、错误码
-   - 前端按合同接入 mock adapter
+   - 前端先按合同接入 mock adapter
 2. Phase 2（REST 能力落地）
    - 实现 snapshots + options 三组 REST
    - 完成 bars 参数校验与兼容回归
@@ -391,7 +354,7 @@ paths:
    - 实现 WS 鉴权、订阅协议、心跳与配额
    - 验证断线重连与 REST 轮询降级协同
 
-## 6. 验收清单
+## 6. Acceptance Checklist
 
 - [ ] API docs updated（含 OpenAPI + WS 协议说明）
 - [ ] 与前端完成字段级合同走查
