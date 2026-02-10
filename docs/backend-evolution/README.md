@@ -21,7 +21,7 @@
 ## 清单
 
 - `BE-0001` 对 PRD-0001 的后端接口演进拆分（实时行情 / 数据观察）
-  - `/Users/mz/pmf/trader-helper/docs/backend-evolution/BE-0001-prd-0001-market-watch-api-breakdown.md`
+  - `docs/backend-evolution/BE-0001-prd-0001-market-watch-api-breakdown.md`
   - 备注：`PRD-0002`（IV）相关拆分延后到下一个 thread
 - `BE-0002` 对 PRD-0001 的接口合同细化（REST/WS 字段与错误码）
   - `docs/backend-evolution/BE-0002-prd-0001-market-watch-api-contract-v1.md`
@@ -29,4 +29,4 @@
 
 ## 模板
 
-- `/Users/mz/pmf/trader-helper/docs/backend-evolution/TEMPLATE.md`
+- `docs/backend-evolution/TEMPLATE.md`
