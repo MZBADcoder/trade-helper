@@ -79,6 +79,21 @@
 
 该流程的职责划分：**REST 负责初始一致性与补洞，WS 负责实时低延迟增量**。
 
+### 5.1 服务端处理细节（实现建议）
+
+- `bars/snapshots` 查询链路采用 **Cache-Aside**：
+  - 先查 Redis；
+  - 未命中再查 Polygon REST；
+  - 将结果写回 Redis（按 endpoint 分别设置 TTL）。
+- WS 增量消息落地统一 envelope（`type/data/ts/source`），并携带 `symbol` 与 `event_ts`，便于前端幂等合并。
+- 前端侧应维护 `last_applied_ts_by_symbol`，对过期消息直接丢弃，避免重连后的重复写入。
+
+### 5.2 回退与纠偏规则（建议写入实现验收）
+
+1) WS 中断 > 阈值（如 10s）后进入 REST 轮询；
+2) WS 恢复后先补拉短窗口 bars（5-30 分钟）再恢复纯增量；
+3) 若补拉失败，继续轮询并上报“数据降级”状态给前端。
+
 ## 6. Data/Task Impact
 
 - DB schema/index changes：
@@ -106,3 +121,4 @@
 - [ ] WS 推送可用，且具备断线重连与服务端配额保护
 - [ ] 超限/降级状态可见（便于排障与成本控制）
 - [ ] WebSocket 鉴权失败有明确错误码/提示
+- [ ] WS 中断与恢复后的补拉纠偏可复现并通过验收
