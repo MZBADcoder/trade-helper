@@ -26,6 +26,9 @@
 - `BE-0002` 对 PRD-0001 的接口合同细化（REST/WS 字段与错误码）
   - `docs/backend-evolution/BE-0002-prd-0001-market-watch-api-contract-v1.md`
   - 备注：仅定义合同，不含实现代码
+- `BE-0003` 对 PRD-0001 新增/修改接口的 Unit Test 设计（覆盖 BE-0002 合同）
+  - `docs/backend-evolution/BE-0003-prd-0001-market-watch-api-unit-test-plan.md`
+  - 备注：以 “API 层单测 + 可选合同测试 + WS 协议测试” 分层描述
 
 ## 模板
 

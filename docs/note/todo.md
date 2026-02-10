@@ -8,3 +8,5 @@
 - [ ] 形成“首屏 REST + 增量 WS + 断线补拉”联调脚本与验收用例（含缓存命中/未命中场景）。
 
 - [ ] BE-0002 评审后，补充 OpenAPI 示例与 WS close code 对照表（供前后端联调）。
+
+- [ ] BE-0003 落地：补齐 API 层单测基础设施（ASGI client/WS client 选型、依赖与通用 fixtures），并将错误码映射统一到 BE-0002 的错误 envelope。
