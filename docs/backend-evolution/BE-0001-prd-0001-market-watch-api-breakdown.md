@@ -9,7 +9,7 @@
 - Scope boundary：
   - 支撑 `/terminal` 的行情展示：历史 bars + 实时快照/推送
   - 支撑 options 基础能力：到期列表、期权链、合约详情、（可选）合约实时更新
-  - Massive/Polygon API Key 仅在服务端使用（前端不直连）
+  - Polygon API Key 仅在服务端使用（前端不直连）
 
 ## 2. Current APIs（Already Available）
 
@@ -40,7 +40,7 @@
 | Method | Path | Change | Compatibility | Priority |
 |---|---|---|---|---|
 | GET | `/api/v1/market-data/bars` | 明确 `timespan/multiplier/from/to` 允许值与错误码；补齐分页/分段拉取策略说明 | Compatible | P1 |
-| GET | `/api/v1/market-data/bars` | 明确是否允许传入 option contract ticker（若 Massive 支持同形态聚合） | Compatible | P2 |
+| GET | `/api/v1/market-data/bars` | 明确是否允许传入 option contract ticker（若 Polygon 支持同形态聚合） | Compatible | P2 |
 
 ### 3.3 Deprecated APIs
 
@@ -58,8 +58,43 @@
 - `WS /market-data/stream`
   - 订阅策略：仅允许订阅「watchlist + 当前选中合约」范围，并有服务端上限保护
   - 消息：统一 envelope（`type` + `data` + `ts`），前端按 `type` 路由处理
+  - 鉴权：WebSocket 握手必须携带 JWT。浏览器 `/terminal` 仅使用 `query` / `cookie` / `Sec-WebSocket-Protocol` 传递令牌；非浏览器客户端可选 `header`。服务端校验失败立即拒绝
+  - 心跳：服务端定时 ping，客户端需响应，超时清理连接
 
-## 5. Data/Task Impact
+## 5. 协同加载案例（历史 REST + 实时 WS）
+
+场景：用户打开 `/terminal`，选中 `AAPL` 并观察分钟级走势。
+
+1) 首屏 REST 批量加载：
+   - `GET /api/v1/market-data/bars`：拉取 `AAPL` 最近 N 根分钟线（用于图表历史窗口）。
+   - `GET /api/v1/market-data/snapshots?tickers=...`：批量拉取 watchlist 最新价（用于列表区）。
+2) 建立 WS 订阅：
+   - 前端通过浏览器可用载体（推荐 `query` 或 `cookie`）建立 `WS /api/v1/market-data/stream`，提交 `subscribe(AAPL)`。
+   - 服务端验证 JWT、订阅权限与订阅数量上限。
+3) 增量合并：
+   - API 持续推送实时事件；前端将事件并入当前图表最后一根或新增新 bar，保持图表“滚动更新”。
+4) 异常修正：
+   - 发生断线/重连后，前端补拉最近短窗口 bars（如最近 5-30 分钟）修复可能缺口。
+   - WS 不可用时切换 REST 轮询（例如 snapshots 每 2-5s、bars 每 15-30s）。
+
+该流程的职责划分：**REST 负责初始一致性与补洞，WS 负责实时低延迟增量**。
+
+### 5.1 服务端处理细节（实现建议）
+
+- `bars/snapshots` 查询链路采用 **Cache-Aside**：
+  - 先查 Redis；
+  - 未命中再查 Polygon REST；
+  - 将结果写回 Redis（按 endpoint 分别设置 TTL）。
+- WS 增量消息落地统一 envelope（`type/data/ts/source`），并携带 `symbol` 与 `event_ts`，便于前端幂等合并。
+- 前端侧应维护 `last_applied_ts_by_symbol`，对过期消息直接丢弃，避免重连后的重复写入。
+
+### 5.2 回退与纠偏规则（建议写入实现验收）
+
+1) WS 中断 > 阈值（如 10s）后进入 REST 轮询；
+2) WS 恢复后先补拉短窗口 bars（5-30 分钟）再恢复纯增量；
+3) 若补拉失败，继续轮询并上报“数据降级”状态给前端。
+
+## 6. Data/Task Impact
 
 - DB schema/index changes：
   - 可先不落库 tick；历史 bars 已落库（现有表）
@@ -68,18 +103,22 @@
   - 预拉取（prefetch）与数据修复任务可继续由 Celery 承担
 - Caching/queue impact：
   - Redis 除 Celery broker 外，建议增加 pub/sub 或 stream 用于实时消息广播与跨进程分发
-  - 新增 realtime 进程（长连接）负责 Massive WS → Redis
+  - 关键缓存：watchlist 快照、热门 ticker 最新价/最近 bars（设置 TTL）
+  - 新增 realtime 进程（长连接）负责 Polygon WS → Redis
 
-## 6. Delivery Plan（建议实现顺序）
+## 7. Delivery Plan（建议实现顺序）
 
 1) 先稳定现有 `auth/watchlist/market-data/bars`（输入校验、分页/分段策略、错误码一致性）。  
 2) 新增 `market-data/snapshots`（先 REST 实现，满足 watchlist 行展示）。  
 3) 新增 `options/expirations` + `options/chain`（先 REST，实现最小 options 观察）。  
 4) 增加 realtime 进程 + `market-data/stream`（WS 推送；并落地降级策略）。  
+5) 接入 Redis 广播与多实例扇出验证（本地 Compose → 多实例）。  
 
-## 7. Acceptance Checklist
+## 8. Acceptance Checklist
 
 - [ ] `/terminal` 端到端不依赖 mock（bars + snapshot 可用）
 - [ ] options chain 可加载（到期列表 + chain）
 - [ ] WS 推送可用，且具备断线重连与服务端配额保护
 - [ ] 超限/降级状态可见（便于排障与成本控制）
+- [ ] WebSocket 鉴权失败有明确错误码/提示
+- [ ] WS 中断与恢复后的补拉纠偏可复现并通过验收
