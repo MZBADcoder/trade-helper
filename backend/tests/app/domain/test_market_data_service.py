@@ -197,7 +197,7 @@ def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: py
         uow=FakeUoW(market_data_repo=repo),
         polygon_client=FailPolygonClient(),
     )
-    captured: dict[str, object] = {}
+    captured_calls: list[dict[str, object]] = []
 
     def fake_list_bars(
         *,
@@ -208,7 +208,7 @@ def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: py
         end_date: date | None = None,
         limit: int | None = None,
     ) -> list[MarketBar]:
-        captured.update(
+        captured_calls.append(
             {
                 "ticker": ticker,
                 "timespan": timespan,
@@ -224,12 +224,16 @@ def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: py
 
     service.prefetch_default(ticker=" aapl ")
 
-    assert captured["ticker"] == "AAPL"
-    assert captured["timespan"] == "day"
-    assert captured["multiplier"] == 1
-    assert captured["start_date"] is not None
-    assert captured["end_date"] is not None
-    assert captured["limit"] is None
+    assert len(captured_calls) == 2
+    assert captured_calls[0]["ticker"] == "AAPL"
+    assert captured_calls[0]["timespan"] == "day"
+    assert captured_calls[0]["multiplier"] == 1
+    assert captured_calls[0]["start_date"] is not None
+    assert captured_calls[0]["end_date"] is not None
+    assert captured_calls[0]["limit"] is None
+    assert captured_calls[1]["ticker"] == "AAPL"
+    assert captured_calls[1]["timespan"] == "minute"
+    assert captured_calls[1]["multiplier"] == 1
 
 
 def test_prefetch_default_rejects_blank_ticker() -> None:

@@ -29,10 +29,7 @@ class FakeUoW:
 class FakePolygonSnapshotClient:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
-
-    def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
-        self.calls.append(tickers)
-        return [
+        self.payload: list[dict] = [
             {
                 "ticker": "AAPL",
                 "last": 203.12,
@@ -48,15 +45,18 @@ class FakePolygonSnapshotClient:
             }
         ]
 
+    def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
+        self.calls.append(tickers)
+        return list(self.payload)
 
-def test_list_snapshots_raises_upstream_unavailable_when_not_implemented() -> None:
+
+def test_list_snapshots_raises_upstream_unavailable_when_client_missing() -> None:
     service = DefaultMarketDataApplicationService(uow=FakeUoW(), polygon_client=None)
 
     with pytest.raises(ValueError, match="MARKET_DATA_UPSTREAM_UNAVAILABLE"):
         service.list_snapshots(tickers=["AAPL"])
 
 
-@pytest.mark.xfail(reason="list_snapshots application behavior not implemented yet", strict=True)
 def test_list_snapshots_returns_mapped_domain_snapshots() -> None:
     client = FakePolygonSnapshotClient()
     service = DefaultMarketDataApplicationService(uow=FakeUoW(), polygon_client=client)
@@ -73,3 +73,42 @@ def test_list_snapshots_returns_mapped_domain_snapshots() -> None:
     assert item.change_pct == pytest.approx(-0.42)
     assert item.updated_at == datetime(2026, 2, 10, 14, 31, 22, tzinfo=timezone.utc)
     assert item.source == "REST"
+
+
+def test_list_snapshots_rejects_invalid_ticker() -> None:
+    client = FakePolygonSnapshotClient()
+    service = DefaultMarketDataApplicationService(uow=FakeUoW(), polygon_client=client)
+
+    with pytest.raises(ValueError, match="MARKET_DATA_INVALID_TICKERS"):
+        service.list_snapshots(tickers=["AA-PL"])
+
+
+def test_list_snapshots_rejects_too_many_unique_tickers() -> None:
+    client = FakePolygonSnapshotClient()
+    service = DefaultMarketDataApplicationService(uow=FakeUoW(), polygon_client=client)
+    tickers = [f"T{idx:02d}" for idx in range(51)]
+
+    with pytest.raises(ValueError, match="MARKET_DATA_INVALID_TICKERS"):
+        service.list_snapshots(tickers=tickers)
+
+
+def test_list_snapshots_maps_rate_limit_error() -> None:
+    class RateLimitedClient:
+        def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
+            _ = tickers
+            raise RuntimeError("429 rate limit exceeded")
+
+    service = DefaultMarketDataApplicationService(uow=FakeUoW(), polygon_client=RateLimitedClient())
+
+    with pytest.raises(ValueError, match="MARKET_DATA_RATE_LIMITED"):
+        service.list_snapshots(tickers=["AAPL"])
+
+
+def test_list_snapshots_returns_empty_list_for_empty_payload() -> None:
+    client = FakePolygonSnapshotClient()
+    client.payload = []
+    service = DefaultMarketDataApplicationService(uow=FakeUoW(), polygon_client=client)
+
+    result = service.list_snapshots(tickers=["AAPL"])
+
+    assert result == []
