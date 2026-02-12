@@ -18,3 +18,18 @@ class MarketBar:
     vwap: float | None = None
     trades: int | None = None
     source: str = "polygon"
+
+
+@dataclass(slots=True)
+class MarketSnapshot:
+    ticker: str
+    last: float
+    change: float
+    change_pct: float
+    open: float
+    high: float
+    low: float
+    volume: int
+    updated_at: datetime
+    market_status: str
+    source: str = "REST"

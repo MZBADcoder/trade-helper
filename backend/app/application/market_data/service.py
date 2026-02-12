@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 
 from app.core.config import settings
-from app.domain.market_data.schemas import MarketBar
+from app.domain.market_data.schemas import MarketBar, MarketSnapshot
 from app.infrastructure.clients.polygon import PolygonClient
 from app.infrastructure.clients.polygon_mapper import map_polygon_aggregates_to_market_bars
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
@@ -104,6 +104,10 @@ class DefaultMarketDataApplicationService:
             start_date=daily_start,
             end_date=today,
         )
+
+    def list_snapshots(self, *, tickers: list[str]) -> list[MarketSnapshot]:
+        _ = tickers
+        raise ValueError("MARKET_DATA_UPSTREAM_UNAVAILABLE")
         self.list_bars(
             ticker=normalized,
             timespan="minute",

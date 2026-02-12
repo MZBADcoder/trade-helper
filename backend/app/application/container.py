@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from app.application.auth.service import DefaultAuthApplicationService
 from app.application.market_data.service import DefaultMarketDataApplicationService
+from app.application.options.service import DefaultOptionsApplicationService
 from app.application.watchlist.service import DefaultWatchlistApplicationService
 from app.core.config import settings
 from app.infrastructure.clients.polygon import PolygonClient
@@ -34,6 +35,10 @@ def build_watchlist_service() -> DefaultWatchlistApplicationService:
         uow=build_uow(),
         market_data_service=build_market_data_service(),
     )
+
+
+def build_options_service() -> DefaultOptionsApplicationService:
+    return DefaultOptionsApplicationService()
 
 
 def build_auth_service() -> DefaultAuthApplicationService:
