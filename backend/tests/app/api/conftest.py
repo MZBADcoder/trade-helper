@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from typing import Generator
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -14,7 +16,7 @@ from app.domain.market_data.schemas import MarketBar
 
 
 @dataclass(slots=True)
-class _FakeSnapshot:
+class FakeSnapshot:
     ticker: str
     last: float
     change: float
@@ -29,22 +31,22 @@ class _FakeSnapshot:
 
 
 @dataclass(slots=True)
-class _FakeOptionExpiration:
+class FakeOptionExpiration:
     date: str
     days_to_expiration: int
     contract_count: int
 
 
 @dataclass(slots=True)
-class _FakeOptionExpirationsResult:
+class FakeOptionExpirationsResult:
     underlying: str
-    expirations: list[_FakeOptionExpiration]
+    expirations: list[FakeOptionExpiration]
     source: str
     updated_at: datetime
 
 
 @dataclass(slots=True)
-class _FakeOptionChainItem:
+class FakeOptionChainItem:
     option_ticker: str
     option_type: str
     strike: float
@@ -59,15 +61,15 @@ class _FakeOptionChainItem:
 
 
 @dataclass(slots=True)
-class _FakeOptionChainResult:
+class FakeOptionChainResult:
     underlying: str
     expiration: str
-    items: list[_FakeOptionChainItem]
+    items: list[FakeOptionChainItem]
     next_cursor: str | None
 
 
 @dataclass(slots=True)
-class _FakeOptionQuote:
+class FakeOptionQuote:
     bid: float
     ask: float
     last: float
@@ -75,7 +77,7 @@ class _FakeOptionQuote:
 
 
 @dataclass(slots=True)
-class _FakeOptionSession:
+class FakeOptionSession:
     open: float
     high: float
     low: float
@@ -84,7 +86,7 @@ class _FakeOptionSession:
 
 
 @dataclass(slots=True)
-class _FakeOptionGreeks:
+class FakeOptionGreeks:
     delta: float
     gamma: float
     theta: float
@@ -93,29 +95,29 @@ class _FakeOptionGreeks:
 
 
 @dataclass(slots=True)
-class _FakeOptionContract:
+class FakeOptionContract:
     option_ticker: str
     underlying: str
     expiration: str
     option_type: str
     strike: float
     multiplier: int
-    quote: _FakeOptionQuote
-    session: _FakeOptionSession
-    greeks: _FakeOptionGreeks | None
+    quote: FakeOptionQuote
+    session: FakeOptionSession
+    greeks: FakeOptionGreeks | None
     source: str
 
 
-class _FakeMarketDataService:
+class FakeMarketDataService:
     def __init__(self) -> None:
         self.list_bars_calls: list[dict] = []
         self.list_snapshots_calls: list[list[str]] = []
 
-    def list_snapshots(self, *, tickers: list[str]) -> list[_FakeSnapshot]:
+    def list_snapshots(self, *, tickers: list[str]) -> list[FakeSnapshot]:
         self.list_snapshots_calls.append(tickers)
         now = datetime(2026, 2, 10, 14, 31, 22, tzinfo=timezone.utc)
         return [
-            _FakeSnapshot(
+            FakeSnapshot(
                 ticker="AAPL",
                 last=203.12,
                 change=-0.85,
@@ -168,19 +170,19 @@ class _FakeMarketDataService:
         ]
 
 
-class _FakeOptionsService:
+class FakeOptionsService:
     def list_expirations(
         self,
         *,
         underlying: str,
         limit: int = 12,
         include_expired: bool = False,
-    ) -> _FakeOptionExpirationsResult:
-        _ = include_expired
-        return _FakeOptionExpirationsResult(
+    ) -> FakeOptionExpirationsResult:
+        _ = (limit, include_expired)
+        return FakeOptionExpirationsResult(
             underlying=underlying,
             expirations=[
-                _FakeOptionExpiration(
+                FakeOptionExpiration(
                     date="2026-02-21",
                     days_to_expiration=11,
                     contract_count=184,
@@ -200,13 +202,13 @@ class _FakeOptionsService:
         option_type: str = "all",
         limit: int = 200,
         cursor: str | None = None,
-    ) -> _FakeOptionChainResult:
+    ) -> FakeOptionChainResult:
         _ = (strike_from, strike_to, option_type, limit, cursor)
-        return _FakeOptionChainResult(
+        return FakeOptionChainResult(
             underlying=underlying,
             expiration=expiration,
             items=[
-                _FakeOptionChainItem(
+                FakeOptionChainItem(
                     option_ticker="O:AAPL260221C00210000",
                     option_type="call",
                     strike=210.0,
@@ -223,26 +225,26 @@ class _FakeOptionsService:
             next_cursor="eyJvZmZzZXQiOjIwMH0=",
         )
 
-    def get_contract(self, *, option_ticker: str, include_greeks: bool = True) -> _FakeOptionContract:
+    def get_contract(self, *, option_ticker: str, include_greeks: bool = True) -> FakeOptionContract:
         greeks = (
-            _FakeOptionGreeks(delta=0.45, gamma=0.03, theta=-0.08, vega=0.11, iv=0.312)
+            FakeOptionGreeks(delta=0.45, gamma=0.03, theta=-0.08, vega=0.11, iv=0.312)
             if include_greeks
             else None
         )
-        return _FakeOptionContract(
+        return FakeOptionContract(
             option_ticker=option_ticker,
             underlying="AAPL",
             expiration="2026-02-21",
             option_type="call",
             strike=210.0,
             multiplier=100,
-            quote=_FakeOptionQuote(
+            quote=FakeOptionQuote(
                 bid=1.23,
                 ask=1.28,
                 last=1.25,
                 updated_at=datetime(2026, 2, 10, 14, 33, 2, tzinfo=timezone.utc),
             ),
-            session=_FakeOptionSession(
+            session=FakeOptionSession(
                 open=1.51,
                 high=1.58,
                 low=1.11,
@@ -254,7 +256,7 @@ class _FakeOptionsService:
         )
 
 
-def _fake_user() -> User:
+def fake_user() -> User:
     now = datetime(2026, 2, 10, 14, 0, 0, tzinfo=timezone.utc)
     return User(
         id=1,
@@ -266,123 +268,26 @@ def _fake_user() -> User:
     )
 
 
-def _build_client() -> tuple[TestClient, _FakeMarketDataService]:
+@pytest.fixture
+def market_data_service() -> FakeMarketDataService:
+    return FakeMarketDataService()
+
+
+@pytest.fixture
+def options_service() -> FakeOptionsService:
+    return FakeOptionsService()
+
+
+@pytest.fixture
+def api_client(
+    market_data_service: FakeMarketDataService,
+    options_service: FakeOptionsService,
+) -> Generator[TestClient, None, None]:
     app = FastAPI()
     install_api_error_handlers(app)
     app.include_router(api_router, prefix="/api/v1")
-
-    market_data_service = _FakeMarketDataService()
-    options_service = _FakeOptionsService()
-
-    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_current_user] = fake_user
     app.dependency_overrides[get_market_data_service] = lambda: market_data_service
     app.dependency_overrides[get_options_service] = lambda: options_service
-
-    return TestClient(app), market_data_service
-
-
-def test_snapshots_returns_contract_payload() -> None:
-    client, market_data_service = _build_client()
-
-    response = client.get("/api/v1/market-data/snapshots", params={"tickers": "AAPL,NVDA"})
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["items"][0]["ticker"] == "AAPL"
-    assert payload["items"][0]["source"] == "REST"
-    assert market_data_service.list_snapshots_calls == [["AAPL", "NVDA"]]
-
-
-def test_snapshots_rejects_too_many_tickers() -> None:
-    client, _ = _build_client()
-    tickers = ",".join(f"T{chr(65 + i // 26)}{chr(65 + i % 26)}" for i in range(51))
-
-    response = client.get("/api/v1/market-data/snapshots", params={"tickers": tickers})
-
-    assert response.status_code == 400
-    payload = response.json()
-    assert payload["error"]["code"] == "MARKET_DATA_TOO_MANY_TICKERS"
-
-
-def test_bars_requires_exactly_one_symbol() -> None:
-    client, _ = _build_client()
-
-    required = client.get("/api/v1/market-data/bars", params={"timespan": "day"})
-    conflict = client.get(
-        "/api/v1/market-data/bars",
-        params={
-            "ticker": "AAPL",
-            "option_ticker": "O:AAPL260221C00210000",
-            "timespan": "day",
-        },
-    )
-
-    assert required.status_code == 400
-    assert required.json()["error"]["code"] == "MARKET_DATA_SYMBOL_REQUIRED"
-    assert conflict.status_code == 400
-    assert conflict.json()["error"]["code"] == "MARKET_DATA_SYMBOL_CONFLICT"
-
-
-def test_bars_success_sets_contract_headers() -> None:
-    client, service = _build_client()
-
-    response = client.get(
-        "/api/v1/market-data/bars",
-        params={
-            "ticker": "AAPL",
-            "timespan": "minute",
-            "multiplier": 1,
-            "from": "2026-02-09",
-            "to": "2026-02-10",
-            "limit": 100,
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.headers["X-Data-Source"] in {"CACHE", "REST", "DB"}
-    assert response.headers["X-Partial-Range"] in {"true", "false"}
-    assert service.list_bars_calls[0]["ticker"] == "AAPL"
-
-
-def test_options_expirations_respects_limit_range() -> None:
-    client, _ = _build_client()
-
-    invalid = client.get("/api/v1/options/expirations", params={"underlying": "AAPL", "limit": 37})
-    valid = client.get("/api/v1/options/expirations", params={"underlying": "AAPL"})
-
-    assert invalid.status_code == 400
-    assert invalid.json()["error"]["code"] == "OPTIONS_INVALID_LIMIT"
-    assert valid.status_code == 200
-    assert valid.json()["underlying"] == "AAPL"
-
-
-def test_options_chain_rejects_invalid_strike_range() -> None:
-    client, _ = _build_client()
-
-    response = client.get(
-        "/api/v1/options/chain",
-        params={
-            "underlying": "AAPL",
-            "expiration": "2026-02-21",
-            "strike_from": 220,
-            "strike_to": 200,
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "OPTIONS_INVALID_STRIKE_RANGE"
-
-
-def test_options_contract_include_greeks_toggle() -> None:
-    client, _ = _build_client()
-
-    with_greeks = client.get("/api/v1/options/contracts/O:AAPL260221C00210000")
-    without_greeks = client.get(
-        "/api/v1/options/contracts/O:AAPL260221C00210000",
-        params={"include_greeks": "false"},
-    )
-
-    assert with_greeks.status_code == 200
-    assert with_greeks.json()["greeks"]["delta"] == 0.45
-    assert without_greeks.status_code == 200
-    assert without_greeks.json()["greeks"] is None
+    with TestClient(app) as client:
+        yield client
