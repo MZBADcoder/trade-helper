@@ -10,3 +10,8 @@
 - [ ] BE-0002 评审后，补充 OpenAPI 示例与 WS close code 对照表（供前后端联调）。
 
 - [ ] BE-0003 落地：补齐 API 层单测基础设施（ASGI client/WS client 选型、依赖与通用 fixtures），并将错误码映射统一到 BE-0002 的错误 envelope。
+
+- [ ] FE-MW-V2：补充 `/terminal` 低保真线框图（watchlist/detail/options/status 四区）并与产品确认信息优先级。
+- [ ] FE-MW-V2：定义 WS 降级态（reconnecting/degraded/recovering）的统一文案与颜色语义。
+- [ ] FE-MW-V2：与 BE 对齐 `system.status` 推送字段，避免前端自行推导连接原因。
+- [ ] FE-MW-V2：评估 options chain 大表渲染方案（分页 vs 虚拟滚动）并给出性能基线。

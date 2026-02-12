@@ -1,5 +1,7 @@
 # 前端原型 V1（Trader Terminal）
 
+> 更新说明：PRD-0001 的 market-watch 增量设计已在 `docs/frontend-design/prototype-v2-market-watch.md` 维护；本文件保留为首版基线。
+
 ## 0. Context
 
 - Source PRD: `/Users/mz/pmf/trader-helper/docs/prd/PRD-0001-market-watch.md`

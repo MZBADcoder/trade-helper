@@ -8,6 +8,8 @@
 
 - 原型 V1（home/login/terminal/demo，对应 PRD-0001 行情观察）
   - `/Users/mz/pmf/trader-helper/docs/frontend-design/prototype-v1.md`
+- 原型 V2（market-watch 增量设计：实时状态、期权链、降级策略）
+  - `docs/frontend-design/prototype-v2-market-watch.md`
 
 ## 约定
 
