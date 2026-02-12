@@ -189,3 +189,55 @@ def test_list_bars_rejects_invalid_date_range() -> None:
             start_date=date(2024, 1, 5),
             end_date=date(2024, 1, 4),
         )
+
+
+def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = FakeMarketDataRepository(bars=[], coverage=None)
+    service = DefaultMarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        polygon_client=FailPolygonClient(),
+    )
+    captured: dict[str, object] = {}
+
+    def fake_list_bars(
+        *,
+        ticker: str,
+        timespan: str,
+        multiplier: int = 1,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int | None = None,
+    ) -> list[MarketBar]:
+        captured.update(
+            {
+                "ticker": ticker,
+                "timespan": timespan,
+                "multiplier": multiplier,
+                "start_date": start_date,
+                "end_date": end_date,
+                "limit": limit,
+            }
+        )
+        return []
+
+    monkeypatch.setattr(service, "list_bars", fake_list_bars)
+
+    service.prefetch_default(ticker=" aapl ")
+
+    assert captured["ticker"] == "AAPL"
+    assert captured["timespan"] == "day"
+    assert captured["multiplier"] == 1
+    assert captured["start_date"] is not None
+    assert captured["end_date"] is not None
+    assert captured["limit"] is None
+
+
+def test_prefetch_default_rejects_blank_ticker() -> None:
+    repo = FakeMarketDataRepository(bars=[], coverage=None)
+    service = DefaultMarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        polygon_client=FailPolygonClient(),
+    )
+
+    with pytest.raises(ValueError, match="Ticker is required"):
+        service.prefetch_default(ticker="   ")
