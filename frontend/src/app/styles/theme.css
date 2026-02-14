@@ -628,6 +628,235 @@ pre {
   font-weight: 600;
 }
 
+.terminalPageV2 {
+  gap: 16px;
+}
+
+.terminalV2Grid {
+  grid-template-columns: 360px minmax(0, 1fr) 430px;
+  align-items: start;
+}
+
+.tableWrap {
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line-soft);
+  background: rgba(7, 12, 22, 0.62);
+}
+
+.watchlistTableV2 th,
+.watchlistTableV2 td {
+  white-space: nowrap;
+}
+
+.watchRowActive {
+  background: rgba(116, 184, 255, 0.12);
+}
+
+.watchRowActive .watchTicker {
+  color: #cde0fc;
+}
+
+.watchlistTableV2 td:last-child {
+  width: 106px;
+}
+
+.detailBodyV2 {
+  gap: 14px;
+}
+
+.detailStatusRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #c2d6f8;
+}
+
+.statusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.sourceTag {
+  border: 1px solid rgba(89, 214, 176, 0.55);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(89, 214, 176, 0.14);
+}
+
+.sourceTagDelayed {
+  border-color: rgba(255, 190, 94, 0.6);
+  background: rgba(255, 190, 94, 0.14);
+}
+
+.metricRowV2 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.optionsPanel .panelBody {
+  display: grid;
+  gap: 12px;
+}
+
+.optionsControlRow {
+  display: grid;
+  gap: 6px;
+}
+
+.selectInput {
+  padding-right: 36px;
+}
+
+.optionsTableWrap {
+  max-height: 340px;
+}
+
+.optionsChainTable th,
+.optionsChainTable td {
+  white-space: nowrap;
+}
+
+.optionsRowActive {
+  background: rgba(89, 214, 176, 0.14);
+}
+
+.chainTickerBtn {
+  border: none;
+  background: transparent;
+  color: #d5e4fa;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  letter-spacing: 0.05em;
+}
+
+.chainTickerBtn:hover {
+  color: #7ad8bc;
+}
+
+.fieldFallback {
+  color: #9db2d7;
+  border-bottom: 1px dashed rgba(148, 168, 202, 0.5);
+  cursor: help;
+}
+
+.optionContractCard {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.optionContractHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.optionMetricGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.statusBarPanel .panelBody {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.statusBarBody {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.statusBadge {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: rgba(14, 23, 40, 0.9);
+}
+
+.statusField {
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #c3d6f6;
+  background: rgba(8, 14, 25, 0.86);
+}
+
+.statusFieldWarn {
+  border-color: rgba(255, 121, 146, 0.55);
+  color: #ffc0ce;
+}
+
+.statusPill {
+  text-transform: uppercase;
+}
+
+.statusConnected {
+  border-color: rgba(89, 214, 176, 0.65);
+  background: rgba(89, 214, 176, 0.18);
+  color: #8be8cc;
+}
+
+.statusReconnecting {
+  border-color: rgba(116, 184, 255, 0.65);
+  background: rgba(116, 184, 255, 0.18);
+  color: #b3d7ff;
+}
+
+.statusDegraded {
+  border-color: rgba(255, 190, 94, 0.6);
+  background: rgba(255, 190, 94, 0.2);
+  color: #ffd395;
+}
+
+.statusDisconnected {
+  border-color: rgba(255, 100, 133, 0.58);
+  background: rgba(255, 100, 133, 0.2);
+  color: #ffb4c6;
+}
+
+.statusIdle {
+  border-color: var(--line);
+  background: rgba(13, 20, 35, 0.86);
+  color: var(--muted);
+}
+
+.toneUp .metricValue,
+.toneUp {
+  color: #7fe5c7;
+}
+
+.toneDown .metricValue,
+.toneDown {
+  color: #ff9eb2;
+}
+
+.toneFlat .metricValue,
+.toneFlat {
+  color: #cedbf2;
+}
+
 .chartStack {
   display: grid;
   gap: 8px;
@@ -858,6 +1087,16 @@ pre {
   }
 }
 
+@media (max-width: 1500px) {
+  .terminalV2Grid {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+
+  .optionsPanel {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 1180px) {
   .terminalGrid {
     grid-template-columns: 1fr;
@@ -865,6 +1104,14 @@ pre {
 
   .metricRow {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .metricRowV2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .optionMetricGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -904,6 +1151,22 @@ pre {
 
   .metricRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metricRowV2 {
+    grid-template-columns: 1fr;
+  }
+
+  .optionMetricGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .watchlistTableV2 td:last-child {
+    width: 84px;
+  }
+
+  .statusBarBody {
+    align-items: flex-start;
   }
 
   .infoHintCard {

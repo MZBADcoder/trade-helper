@@ -1,6 +1,6 @@
 import { apiRequest } from "@/shared/api";
 
-import { type MarketBar } from "../model/types";
+import { type MarketBar, type MarketSnapshot, type MarketSnapshotsPayload } from "../model/types";
 
 type MarketQuery = {
   token: string;
@@ -24,4 +24,15 @@ export async function listMarketBars(params: MarketQuery): Promise<MarketBar[]> 
       limit: params.limit
     }
   });
+}
+
+export async function listMarketSnapshots(token: string, tickers: string[]): Promise<MarketSnapshot[]> {
+  if (!tickers.length) return [];
+  const payload = await apiRequest<MarketSnapshotsPayload>("/market-data/snapshots", {
+    token,
+    query: {
+      tickers: tickers.join(",")
+    }
+  });
+  return payload.items;
 }

@@ -4,7 +4,7 @@ export type ApiRequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   token?: string;
   body?: unknown;
-  query?: Record<string, string | number | undefined | null>;
+  query?: Record<string, string | number | boolean | undefined | null>;
 };
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
@@ -27,8 +27,18 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   });
 
   if (!resp.ok) {
-    const errorBody = await readJson<{ detail?: string }>(resp);
-    throw new Error(errorBody?.detail ?? `${method} ${path} failed`);
+    const errorBody = await readJson<{
+      detail?: string;
+      error?: {
+        code?: string;
+        message?: string;
+      };
+    }>(resp);
+    const errorMessage = errorBody?.error?.message ?? errorBody?.detail ?? `${method} ${path} failed`;
+    if (errorBody?.error?.code) {
+      throw new Error(`${errorBody.error.code}: ${errorMessage}`);
+    }
+    throw new Error(errorMessage);
   }
 
   if (resp.status === 204) {

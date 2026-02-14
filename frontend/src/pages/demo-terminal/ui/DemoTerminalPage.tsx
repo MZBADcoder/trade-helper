@@ -1,9 +1,8 @@
 import React from "react";
 
-import { buildIndicators, type IndicatorBundle, type MarketBar } from "@/entities/market";
+import { buildIndicators, StockChartPanel, type IndicatorBundle, type MarketBar } from "@/entities/market";
 import { TerminalEmptyGraphic } from "@/shared/ui";
 import { type WatchlistItem } from "@/entities/watchlist";
-import { StockChartPanel } from "@/widgets/stock-chart";
 
 import {
   buildDemoBars,
