@@ -211,13 +211,13 @@ def _to_market_snapshot(raw: object) -> MarketSnapshot | None:
 
     return MarketSnapshot(
         ticker=ticker.upper(),
-        last=_extract_float(raw, "last", "price"),
+        last=_extract_float(raw, "last", "price", "last_trade.price"),
         change=_extract_float(raw, "change", "todays_change"),
-        change_pct=_extract_float(raw, "change_pct", "todays_change_perc"),
-        open=_extract_float(raw, "open"),
-        high=_extract_float(raw, "high"),
-        low=_extract_float(raw, "low"),
-        volume=int(_extract_float(raw, "volume")),
+        change_pct=_extract_float(raw, "change_pct", "todays_change_perc", "todays_change_percent"),
+        open=_extract_float(raw, "open", "day.open"),
+        high=_extract_float(raw, "high", "day.high"),
+        low=_extract_float(raw, "low", "day.low"),
+        volume=int(_extract_float(raw, "volume", "day.volume")),
         updated_at=updated_at,
         market_status=_extract_str(raw, "market_status") or "unknown",
         source=(_extract_str(raw, "source") or "REST").upper(),
@@ -225,11 +225,19 @@ def _to_market_snapshot(raw: object) -> MarketSnapshot | None:
 
 
 def _extract_value(raw: object, key: str) -> object | None:
-    if isinstance(raw, dict):
-        return raw.get(key)
-    if hasattr(raw, key):
-        return getattr(raw, key)
-    return None
+    parts = key.split(".")
+    current: object | None = raw
+    for part in parts:
+        if current is None:
+            return None
+        if isinstance(current, dict):
+            current = current.get(part)
+            continue
+        if hasattr(current, part):
+            current = getattr(current, part)
+            continue
+        return None
+    return current
 
 
 def _extract_str(raw: object, *keys: str) -> str:

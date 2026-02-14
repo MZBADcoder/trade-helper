@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+import re
 from typing import Any
 
 try:
@@ -103,9 +104,9 @@ class PolygonClient:
             "limit": limit,
         }
         if strike_from is not None:
-            payload["strike_price.gte"] = strike_from
+            payload["strike_price_gte"] = strike_from
         if strike_to is not None:
-            payload["strike_price.lte"] = strike_to
+            payload["strike_price_lte"] = strike_to
         if option_type in {"call", "put"}:
             payload["contract_type"] = option_type
         if cursor:
@@ -124,10 +125,11 @@ class PolygonClient:
         include_greeks: bool,
     ) -> dict[str, Any]:
         _ = include_greeks
+        underlying = _extract_underlying_from_option_ticker(option_ticker)
         candidates = (
+            ("get_options_contract", {"ticker": option_ticker}),
             ("get_option_contract", {"option_ticker": option_ticker}),
-            ("get_options_contract", {"options_ticker": option_ticker}),
-            ("get_snapshot_option", {"option_ticker": option_ticker}),
+            ("get_snapshot_option", {"underlying_asset": underlying, "option_contract": option_ticker}),
             ("get_snapshot_option", {"ticker": option_ticker}),
         )
         raw = self._call_first_supported(candidates)
@@ -176,3 +178,14 @@ def _to_dict(raw: Any) -> dict[str, Any] | None:
     if hasattr(raw, "__dict__"):
         return vars(raw)
     return None
+
+
+_OPTION_TICKER_RE = re.compile(r"^O:([A-Z.]+)")
+
+
+def _extract_underlying_from_option_ticker(option_ticker: str) -> str:
+    normalized = option_ticker.strip().upper()
+    matched = _OPTION_TICKER_RE.match(normalized)
+    if matched:
+        return matched.group(1)
+    return normalized
