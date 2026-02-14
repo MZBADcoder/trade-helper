@@ -189,7 +189,7 @@ Query 参数：
 
 Path 参数：
 
-- `option_ticker`：必填，Polygon 期权代码（例：`O:AAPL260221C00210000`）
+- `option_ticker`：必填，Massive 期权代码（例：`O:AAPL260221C00210000`）
 
 Query 参数：
 

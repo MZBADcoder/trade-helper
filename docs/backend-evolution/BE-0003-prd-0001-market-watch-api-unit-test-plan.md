@@ -14,7 +14,7 @@
 - **修改 REST**：
   - `GET /api/v1/market-data/bars`（参数枚举、窗口限制、ticker/option_ticker 二选一、错误码/分页语义、header）
 
-> 约定：此处的 “unit test” 指 **不触达真实外部 IO**（Polygon/Redis/DB），通过依赖注入替换 application service（具体类）来验证 API 的入参校验、错误映射与 DTO 映射。
+> 约定：此处的 “unit test” 指 **不触达真实外部 IO**（Massive/Redis/DB），通过依赖注入替换 application service（具体类）来验证 API 的入参校验、错误映射与 DTO 映射。
 
 ## 2. 测试分层建议
 

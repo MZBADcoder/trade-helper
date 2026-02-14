@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -13,7 +14,10 @@ class Settings(BaseSettings):
     app_secret_key: str = "change-me"
     auth_access_token_expire_days: int = 14
 
-    polygon_api_key: str | None = None
+    massive_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MASSIVE_API_KEY", "POLYGON_API_KEY"),
+    )
     market_data_daily_lookback_days: int = 730
     market_data_intraday_lookback_days: int = 5
 

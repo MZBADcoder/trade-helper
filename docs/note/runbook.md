@@ -2,7 +2,7 @@
 
 ## 前置
 - 安装 Docker / Docker Compose
-- 复制 `.env.example` 为 `.env` 并填入 `POLYGON_API_KEY`（其余可用默认）
+- 复制 `.env.example` 为 `.env` 并填入 `MASSIVE_API_KEY`（其余可用默认）
 
 ## 启动
 ```bash

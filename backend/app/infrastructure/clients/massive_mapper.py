@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from app.domain.market_data.schemas import MarketBar
 
 
-def map_polygon_aggregates_to_market_bars(
+def map_massive_aggregates_to_market_bars(
     *,
     ticker: str,
     timespan: str,
@@ -96,7 +96,7 @@ def _to_utc_datetime(value: object | None) -> datetime | None:
     if isinstance(value, (int, float)):
         numeric = float(value)
         abs_value = abs(numeric)
-        # Polygon timestamps are usually in ms; keep compatibility with second/ns inputs.
+        # Massive timestamps are usually in ms; keep compatibility with second/ns inputs.
         if abs_value >= 10_000_000_000_000:
             numeric = numeric / 1_000_000_000.0
         elif abs_value >= 10_000_000_000:

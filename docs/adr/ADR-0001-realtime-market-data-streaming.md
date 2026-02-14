@@ -1,4 +1,4 @@
-# ADR-0001 — 实时行情推送架构（服务端代理 Polygon WebSocket）
+# ADR-0001 — 实时行情推送架构（服务端代理 Massive WebSocket）
 
 日期：2026-02-09  
 状态：Proposed
@@ -6,7 +6,7 @@
 ## 背景
 
 - `PRD-0001` 需要在 Web Terminal 中展示股票与期权的实时更新能力。
-- Polygon 提供 WebSocket 实时数据，但直接在浏览器连接会带来：
+- Massive 提供 WebSocket 实时数据，但直接在浏览器连接会带来：
   - API Key 暴露风险
   - 订阅/配额不可控（每个浏览器都可能建立连接并订阅大量 symbols）
   - 多用户/多端扩展困难
@@ -20,7 +20,7 @@
 
 ## 可选方案
 
-### 方案 A：前端直连 Polygon WebSocket
+### 方案 A：前端直连 Massive WebSocket
 
 - 优点：实现最简单、延迟最低
 - 缺点：
@@ -31,7 +31,7 @@
 ### 方案 B：服务端代理（推荐）
 
 - 形态：
-  - 新增 `realtime` 进程：连接 Polygon WebSocket（stocks/options），维护订阅集合
+  - 新增 `realtime` 进程：连接 Massive WebSocket（stocks/options），维护订阅集合
   - 使用 Redis 作为广播通道（pub/sub 或 stream）
   - API 对前端提供 WebSocket endpoint（鉴权后订阅/转发）
 - 优点：
@@ -51,7 +51,7 @@
 
 采用 **方案 B：服务端代理**，并将 **方案 C** 作为自动降级路径：
 
-1) `realtime` 进程负责 Polygon WS 连接、重连、订阅管理与消息标准化（统一 envelope）。  
+1) `realtime` 进程负责 Massive WS 连接、重连、订阅管理与消息标准化（统一 envelope）。  
 2) API 提供 `WS /api/v1/market-data/stream`：
    - 鉴权后允许订阅「watchlist + 当前选中合约」范围
    - 服务端强制订阅上限（ticker/合约数量）并返回可见错误提示  
@@ -59,7 +59,7 @@
 
 ## 关键设计补充
 
-- **上游连接策略**：每类资产（stocks/options）保持最少必要的 Polygon 上游连接，集中订阅与复用，避免每个客户端独立连上游。  
+- **上游连接策略**：每类资产（stocks/options）保持最少必要的 Massive 上游连接，集中订阅与复用，避免每个客户端独立连上游。  
 - **消息分发**：`realtime` 进程将上游消息统一封装为 `type/data/ts/source`，通过 Redis Pub/Sub 广播至 API 实例，再由 API 对各自 WebSocket 客户端扇出。  
 - **鉴权与安全**：
   - WebSocket 连接建立时必须携带 JWT。
@@ -81,7 +81,7 @@
    - 前端通过浏览器可用载体（推荐 `query` 或 `cookie`）携带 JWT 连接 `WS /api/v1/market-data/stream`，发送订阅指令（`AAPL` + 当前页面关注合约）。
    - API 校验订阅权限与上限，注册连接并开始接收该用户所需实时流。
 3. **实时增量对齐历史窗口**
-   - `realtime` 进程从 Polygon 收到 `AAPL` tick/quote/trade 后，标准化为统一 envelope 并通过 Redis 广播。
+   - `realtime` 进程从 Massive 收到 `AAPL` tick/quote/trade 后，标准化为统一 envelope 并通过 Redis 广播。
    - API 将增量消息推给前端；前端按时间戳把增量并入当前图表：
      - 若属于当前分钟，更新最后一根 K 线（OHLCV）；
      - 若跨分钟，封口上一根并新增一根。
@@ -95,7 +95,7 @@
 
 1. 前端请求 `bars/snapshots` 后，API 优先查 Redis：
    - **命中**：直接返回，降低首屏延迟；
-   - **未命中**：调用 Polygon REST 拉取后回填 Redis（带 TTL）再返回。
+   - **未命中**：调用 Massive REST 拉取后回填 Redis（带 TTL）再返回。
 2. 前端 WS 订阅成功后，API 不再依赖高频 REST 刷新最新价，而由 WS 增量驱动 UI 更新。
 3. 若 WS 中断：
    - 前端进入短周期 REST 轮询；

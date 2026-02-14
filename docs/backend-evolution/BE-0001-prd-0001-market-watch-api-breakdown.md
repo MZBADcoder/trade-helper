@@ -9,7 +9,7 @@
 - Scope boundary：
   - 支撑 `/terminal` 的行情展示：历史 bars + 实时快照/推送
   - 支撑 options 基础能力：到期列表、期权链、合约详情、（可选）合约实时更新
-  - Polygon API Key 仅在服务端使用（前端不直连）
+  - Massive API Key 仅在服务端使用（前端不直连）
 
 ## 2. Current APIs（Already Available）
 
@@ -40,7 +40,7 @@
 | Method | Path | Change | Compatibility | Priority |
 |---|---|---|---|---|
 | GET | `/api/v1/market-data/bars` | 明确 `timespan/multiplier/from/to` 允许值与错误码；补齐分页/分段拉取策略说明 | Compatible | P1 |
-| GET | `/api/v1/market-data/bars` | 明确是否允许传入 option contract ticker（若 Polygon 支持同形态聚合） | Compatible | P2 |
+| GET | `/api/v1/market-data/bars` | 明确是否允许传入 option contract ticker（若 Massive 支持同形态聚合） | Compatible | P2 |
 
 ### 3.3 Deprecated APIs
 
@@ -83,7 +83,7 @@
 
 - `bars/snapshots` 查询链路采用 **Cache-Aside**：
   - 先查 Redis；
-  - 未命中再查 Polygon REST；
+  - 未命中再查 Massive REST；
   - 将结果写回 Redis（按 endpoint 分别设置 TTL）。
 - WS 增量消息落地统一 envelope（`type/data/ts/source`），并携带 `symbol` 与 `event_ts`，便于前端幂等合并。
 - 前端侧应维护 `last_applied_ts_by_symbol`，对过期消息直接丢弃，避免重连后的重复写入。
@@ -104,7 +104,7 @@
 - Caching/queue impact：
   - Redis 除 Celery broker 外，建议增加 pub/sub 或 stream 用于实时消息广播与跨进程分发
   - 关键缓存：watchlist 快照、热门 ticker 最新价/最近 bars（设置 TTL）
-  - 新增 realtime 进程（长连接）负责 Polygon WS → Redis
+  - 新增 realtime 进程（长连接）负责 Massive WS → Redis
 
 ## 7. Delivery Plan（建议实现顺序）
 

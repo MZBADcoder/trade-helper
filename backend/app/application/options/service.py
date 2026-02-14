@@ -7,7 +7,7 @@ from typing import Any
 
 from app.domain.options.schemas import OptionChainResult, OptionContract, OptionExpirationsResult
 from app.domain.options.schemas import OptionChainItem, OptionExpiration, OptionGreeks, OptionQuote, OptionSession
-from app.infrastructure.clients.polygon import PolygonClient
+from app.infrastructure.clients.massive import MassiveClient
 
 _UNDERLYING_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 _OPTION_TYPES = {"call", "put", "all"}
@@ -15,8 +15,8 @@ _EXPIRATION_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class DefaultOptionsApplicationService:
-    def __init__(self, *, polygon_client: PolygonClient | None = None) -> None:
-        self._polygon_client = polygon_client
+    def __init__(self, *, massive_client: MassiveClient | None = None) -> None:
+        self._massive_client = massive_client
 
     def list_expirations(
         self,
@@ -28,11 +28,11 @@ class DefaultOptionsApplicationService:
         normalized = _normalize_underlying(underlying)
         if limit < 1 or limit > 36:
             raise ValueError("OPTIONS_INVALID_LIMIT")
-        if self._polygon_client is None:
+        if self._massive_client is None:
             raise ValueError("OPTIONS_UPSTREAM_UNAVAILABLE")
 
         try:
-            contracts = self._polygon_client.list_options_expirations(
+            contracts = self._massive_client.list_options_expirations(
                 underlying=normalized,
                 limit=limit,
                 include_expired=include_expired,
@@ -72,11 +72,11 @@ class DefaultOptionsApplicationService:
             raise ValueError("OPTIONS_INVALID_OPTION_TYPE")
         if limit < 1 or limit > 500:
             raise ValueError("OPTIONS_INVALID_LIMIT")
-        if self._polygon_client is None:
+        if self._massive_client is None:
             raise ValueError("OPTIONS_UPSTREAM_UNAVAILABLE")
 
         try:
-            payload = self._polygon_client.list_options_chain(
+            payload = self._massive_client.list_options_chain(
                 underlying=normalized_underlying,
                 expiration=expiration,
                 strike_from=strike_from,
@@ -110,11 +110,11 @@ class DefaultOptionsApplicationService:
         normalized_ticker = option_ticker.strip().upper()
         if not normalized_ticker.startswith("O:"):
             raise ValueError("OPTIONS_INVALID_TICKER")
-        if self._polygon_client is None:
+        if self._massive_client is None:
             raise ValueError("OPTIONS_UPSTREAM_UNAVAILABLE")
 
         try:
-            payload = self._polygon_client.get_options_contract(
+            payload = self._massive_client.get_options_contract(
                 option_ticker=normalized_ticker,
                 include_greeks=include_greeks,
             )

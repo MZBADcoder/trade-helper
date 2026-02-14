@@ -27,7 +27,7 @@
   - 负责鉴权、配置与查询（CRUD）、对前端提供稳定的 HTTP API（与后续 WS 能力）。
   - 原则：请求链路内避免重计算，复杂计算交给 worker。
 - `realtime`（可选，供 PRD-0001 使用）
-  - 负责连接 Massive/Polygon WebSocket，做订阅聚合、重连与消息标准化，并向内广播给 API（见 `ADR-0001`）。
+  - 负责连接 Massive WebSocket，做订阅聚合、重连与消息标准化，并向内广播给 API（见 `ADR-0001`）。
 - `worker`（Celery）
   - 负责可重试、可并发、可能耗时的任务：数据拉取/回填、扫描计算、告警发送等。
 - `beat`（Celery Beat）
@@ -56,10 +56,10 @@
   1) 前端请求 `GET /api/v1/market-data/bars`
   2) API 调用 market_data application service
   3) service 优先读库（命中覆盖区间则直接返回）
-  4) 缺数据则调用 Massive/Polygon REST 拉取并 upsert 落库，再返回
+  4) 缺数据则调用 Massive REST 拉取并 upsert 落库，再返回
 
 - 实时行情推送（规划中，见 `ADR-0001`）：
-  1) `realtime` 进程连接 Massive/Polygon WS，聚合 subscriptions，并输出标准化消息
+  1) `realtime` 进程连接 Massive WS，聚合 subscriptions，并输出标准化消息
   2) 通过 Redis（pub/sub 或 stream）广播最新消息/快照
   3) API 提供 `WS /api/v1/market-data/stream` 给前端订阅与转发
   4) WS 不可用时，降级为 REST polling（前后端协作实现）

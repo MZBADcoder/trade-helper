@@ -175,7 +175,10 @@ def _raise_market_data_service_error(exc: ValueError) -> None:
             code="MARKET_DATA_RATE_LIMITED",
             message="market data request rate limited",
         )
-    if detail == "MARKET_DATA_UPSTREAM_UNAVAILABLE" or detail == "Polygon client not configured":
+    if detail in {
+        "MARKET_DATA_UPSTREAM_UNAVAILABLE",
+        "Massive client not configured",
+    }:
         raise_api_error(
             status_code=502,
             code="MARKET_DATA_UPSTREAM_UNAVAILABLE",

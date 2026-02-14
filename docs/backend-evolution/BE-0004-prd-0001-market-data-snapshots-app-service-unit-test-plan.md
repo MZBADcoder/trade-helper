@@ -19,7 +19,7 @@
 测试边界：
 
 - 仅测 application service 编排、输入防御、错误语义
-- 不触达真实 Polygon/Redis/DB/WS
+- 不触达真实 Massive/Redis/DB/WS
 - endpoint 的 HTTP 状态码映射继续由 API 层单测承担（见 `BE-0003`）
 
 ## 2. 测试文件与替身设计
@@ -33,8 +33,8 @@
 建议替身：
 
 - `FakeUoW` + `FakeMarketDataRepository`（已存在，可复用）
-- `FakePolygonClient`（聚合 bars）
-- `FakePolygonSnapshotClient`（快照）
+- `FakeMassiveClient`（聚合 bars）
+- `FakeMassiveSnapshotClient`（快照）
 - `RateLimited*Client` / `Failing*Client`（错误语义测试）
 - options 侧暂以最小替身驱动（当前方法未接入依赖）
 
@@ -62,14 +62,14 @@
 
 ### 4.1 `list_bars`
 
-- `test_list_bars_fetches_polygon_when_cache_missing`
+- `test_list_bars_fetches_massive_when_cache_missing`
 - `test_list_bars_rejects_invalid_date_range`
 - `test_list_bars_rejects_blank_ticker`
 - `test_list_bars_rejects_blank_timespan`
 - `test_list_bars_rejects_multiplier_less_than_1`
-- `test_list_bars_raises_when_polygon_client_missing_and_cache_insufficient`
-- `test_list_bars_commits_when_polygon_returns_bars`
-- `test_list_bars_skips_commit_when_polygon_returns_empty`
+- `test_list_bars_raises_when_massive_client_missing_and_cache_insufficient`
+- `test_list_bars_commits_when_massive_returns_bars`
+- `test_list_bars_skips_commit_when_massive_returns_empty`
 
 ### 4.2 `prefetch_default`
 

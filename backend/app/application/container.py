@@ -7,16 +7,16 @@ from app.application.market_data.service import DefaultMarketDataApplicationServ
 from app.application.options.service import DefaultOptionsApplicationService
 from app.application.watchlist.service import DefaultWatchlistApplicationService
 from app.core.config import settings
-from app.infrastructure.clients.polygon import PolygonClient
+from app.infrastructure.clients.massive import MassiveClient
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 
 @lru_cache
-def _polygon_client() -> PolygonClient | None:
-    if not settings.polygon_api_key:
+def _massive_client() -> MassiveClient | None:
+    if not settings.massive_api_key:
         return None
-    return PolygonClient(settings.polygon_api_key)
+    return MassiveClient(settings.massive_api_key)
 
 
 def build_uow() -> SqlAlchemyUnitOfWork:
@@ -26,7 +26,7 @@ def build_uow() -> SqlAlchemyUnitOfWork:
 def build_market_data_service() -> DefaultMarketDataApplicationService:
     return DefaultMarketDataApplicationService(
         uow=build_uow(),
-        polygon_client=_polygon_client(),
+        massive_client=_massive_client(),
     )
 
 
@@ -39,7 +39,7 @@ def build_watchlist_service() -> DefaultWatchlistApplicationService:
 
 def build_options_service() -> DefaultOptionsApplicationService:
     return DefaultOptionsApplicationService(
-        polygon_client=_polygon_client(),
+        massive_client=_massive_client(),
     )
 
 

@@ -1,4 +1,4 @@
-# PRD-0001 — 实时行情 / 数据观察（Stocks + Options，Polygon.io / Massive.com）
+# PRD-0001 — 实时行情 / 数据观察（Stocks + Options，Massive.com）
 
 > 目的：本文件用于把需求“聊清楚”，形成一致的项目范围、优先级与验收标准；**不涉及代码实现**。  
 > 状态：草案  
@@ -9,7 +9,7 @@
 
 ## 1. 项目一句话
 
-- 我们要做的是：**一个自建的 Web Trader Terminal**，基于 `Polygon.io（现 Massive.com）` 提供「美股股票 + 美股期权」的**历史行情 + 实时行情**观察（K 线、快照、期权链），作为后续 `PRD-0002 IV Percentile 告警` 的数据与展示底座。
+- 我们要做的是：**一个自建的 Web Trader Terminal**，基于 `Massive.com` 提供「美股股票 + 美股期权」的**历史行情 + 实时行情**观察（K 线、快照、期权链），作为后续 `PRD-0002 IV Percentile 告警` 的数据与展示底座。
 
 ## 2. 背景与动机
 
@@ -25,7 +25,7 @@
 
 ### 3.1 目标（可量化）
 
-- G1：终端核心页面（`/terminal`）**不再依赖 mock 数据**；股票 K 线与最新价格来自 Massive/Polygon。
+- G1：终端核心页面（`/terminal`）**不再依赖 mock 数据**；股票 K 线与最新价格来自 Massive。
 - G2：提供股票实时更新能力：watchlist 中的 `Last/Change/%Change/更新时间` 能做到**秒级或数秒级**刷新（取决于数据订阅与成本约束），并支持断线重连与降级策略。
 - G3：提供期权基础观察能力：按 underlying 展示期权链（到期、行权价、Call/Put），至少展示 `Bid/Ask/Last/IV/Volume/OI`，并支持选中单合约查看详情与实时更新。
 - G4：数据链路可观测：界面明确显示数据源（REST/WS）、连接状态、是否延迟行情（real-time vs delayed）、最后更新时间。
@@ -127,8 +127,8 @@
 
 ### 7.1 数据源与形态
 
-- 历史数据：Massive/Polygon REST API（按需拉取 bars，并做本地缓存/落库）
-- 实时数据：Massive/Polygon WebSocket（股票与期权的实时推送）
+- 历史数据：Massive REST API（按需拉取 bars，并做本地缓存/落库）
+- 实时数据：Massive WebSocket（股票与期权的实时推送）
 - 大批量历史数据：Massive Flat Files（S3/对象存储，供离线回填/批处理；非 MVP 必需）
 
 ### 7.2 Flat Files 使用策略（预案，非 MVP 必需）
@@ -144,7 +144,7 @@
 
 ### 7.3 API Key 与鉴权
 
-- Massive/Polygon API Key **仅存服务端**（环境变量/密钥管理），前端不直连 Massive。
+- Massive API Key **仅存服务端**（环境变量/密钥管理），前端不直连 Massive。
 - 前端通过本系统的登录态访问 REST/WS（避免泄露第三方 Key，统一做权限与配额控制）。
 
 ## 8. 交互与界面（先定“信息结构”）
@@ -181,7 +181,7 @@
 
 ## 11. 风险与开放问题
 
-- Q1：我们当前使用的 Massive/Polygon 订阅计划是 **real-time 还是 delayed**？若是 delayed，UI 需明确展示“延迟行情”。
+- Q1：我们当前使用的 Massive 订阅计划是 **real-time 还是 delayed**？若是 delayed，UI 需明确展示“延迟行情”。
 - Q2：实时行情我们更关注哪类事件？（trade/quote/秒级聚合）对 UI 来说哪个最关键？
 - Q3：期权链 MVP 的“最小字段集”具体要哪些？是否需要 greeks（delta/gamma/vega/theta）？
 - Q4：历史存储策略：bars 落库保留多久？是否需要按 watchlist 自动预拉取？

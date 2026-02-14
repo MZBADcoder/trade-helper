@@ -61,7 +61,7 @@ class FakeUoW:
         return None
 
 
-class FakePolygonClient:
+class FakeMassiveClient:
     def __init__(self, payload: list[dict]) -> None:
         self.payload = payload
         self.called = False
@@ -83,7 +83,7 @@ class FakePolygonClient:
         return self.payload
 
 
-class FailPolygonClient:
+class FailMassiveClient:
     def list_aggs(
         self,
         *,
@@ -97,7 +97,7 @@ class FailPolygonClient:
         limit: int = 50000,
     ) -> list[dict]:
         _ = (ticker, multiplier, timespan, from_date, to_date, adjusted, sort, limit)
-        raise AssertionError("Polygon client should not be called")
+        raise AssertionError("Massive client should not be called")
 
 
 def test_list_bars_uses_cache_when_coverage_sufficient() -> None:
@@ -125,7 +125,7 @@ def test_list_bars_uses_cache_when_coverage_sufficient() -> None:
     repo = FakeMarketDataRepository(bars=cached, coverage=coverage)
     service = DefaultMarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
-        polygon_client=FailPolygonClient(),
+        massive_client=FailMassiveClient(),
     )
 
     result = service.list_bars(
@@ -140,7 +140,7 @@ def test_list_bars_uses_cache_when_coverage_sufficient() -> None:
     assert repo.upserted == []
 
 
-def test_list_bars_fetches_polygon_when_cache_missing() -> None:
+def test_list_bars_fetches_massive_when_cache_missing() -> None:
     payload = [
         {
             "t": 1704153600000,
@@ -154,10 +154,10 @@ def test_list_bars_fetches_polygon_when_cache_missing() -> None:
         }
     ]
     repo = FakeMarketDataRepository(bars=[], coverage=None)
-    polygon = FakePolygonClient(payload)
+    massive = FakeMassiveClient(payload)
     service = DefaultMarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
-        polygon_client=polygon,
+        massive_client=massive,
     )
 
     result = service.list_bars(
@@ -168,7 +168,7 @@ def test_list_bars_fetches_polygon_when_cache_missing() -> None:
         end_date=date(2024, 1, 2),
     )
 
-    assert polygon.called is True
+    assert massive.called is True
     assert len(repo.upserted) == 1
     assert result == repo.upserted
     assert result[0].ticker == "MSFT"
@@ -178,7 +178,7 @@ def test_list_bars_rejects_invalid_date_range() -> None:
     repo = FakeMarketDataRepository(bars=[], coverage=None)
     service = DefaultMarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
-        polygon_client=FailPolygonClient(),
+        massive_client=FailMassiveClient(),
     )
 
     with pytest.raises(ValueError):
@@ -195,7 +195,7 @@ def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: py
     repo = FakeMarketDataRepository(bars=[], coverage=None)
     service = DefaultMarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
-        polygon_client=FailPolygonClient(),
+        massive_client=FailMassiveClient(),
     )
     captured_calls: list[dict[str, object]] = []
 
@@ -240,7 +240,7 @@ def test_prefetch_default_rejects_blank_ticker() -> None:
     repo = FakeMarketDataRepository(bars=[], coverage=None)
     service = DefaultMarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
-        polygon_client=FailPolygonClient(),
+        massive_client=FailMassiveClient(),
     )
 
     with pytest.raises(ValueError, match="Ticker is required"):

@@ -6,7 +6,7 @@ from app.application.options.service import DefaultOptionsApplicationService
 from app.domain.options.schemas import OptionChainResult, OptionContract, OptionExpirationsResult
 
 
-class FakePolygonOptionsClient:
+class FakeMassiveOptionsClient:
     def __init__(self) -> None:
         self.expirations_calls: list[dict] = []
         self.chain_calls: list[dict] = []
@@ -120,8 +120,8 @@ def test_list_expirations_raises_options_upstream_unavailable_without_client() -
 
 
 def test_list_expirations_returns_grouped_result() -> None:
-    client = FakePolygonOptionsClient()
-    service = DefaultOptionsApplicationService(polygon_client=client)
+    client = FakeMassiveOptionsClient()
+    service = DefaultOptionsApplicationService(massive_client=client)
 
     result = service.list_expirations(underlying="aapl", limit=12, include_expired=False)
 
@@ -135,8 +135,8 @@ def test_list_expirations_returns_grouped_result() -> None:
 
 
 def test_list_expirations_rejects_invalid_limit() -> None:
-    client = FakePolygonOptionsClient()
-    service = DefaultOptionsApplicationService(polygon_client=client)
+    client = FakeMassiveOptionsClient()
+    service = DefaultOptionsApplicationService(massive_client=client)
 
     with pytest.raises(ValueError, match="OPTIONS_INVALID_LIMIT"):
         service.list_expirations(underlying="AAPL", limit=37)
@@ -150,8 +150,8 @@ def test_list_chain_raises_options_upstream_unavailable_without_client() -> None
 
 
 def test_list_chain_returns_domain_result() -> None:
-    client = FakePolygonOptionsClient()
-    service = DefaultOptionsApplicationService(polygon_client=client)
+    client = FakeMassiveOptionsClient()
+    service = DefaultOptionsApplicationService(massive_client=client)
 
     result = service.list_chain(
         underlying="aapl",
@@ -172,8 +172,8 @@ def test_list_chain_returns_domain_result() -> None:
 
 
 def test_list_chain_rejects_invalid_expiration() -> None:
-    client = FakePolygonOptionsClient()
-    service = DefaultOptionsApplicationService(polygon_client=client)
+    client = FakeMassiveOptionsClient()
+    service = DefaultOptionsApplicationService(massive_client=client)
 
     with pytest.raises(ValueError, match="OPTIONS_INVALID_EXPIRATION"):
         service.list_chain(underlying="AAPL", expiration="20260221")
@@ -187,8 +187,8 @@ def test_get_contract_raises_options_upstream_unavailable_without_client() -> No
 
 
 def test_get_contract_returns_domain_result_with_greeks() -> None:
-    client = FakePolygonOptionsClient()
-    service = DefaultOptionsApplicationService(polygon_client=client)
+    client = FakeMassiveOptionsClient()
+    service = DefaultOptionsApplicationService(massive_client=client)
 
     result = service.get_contract(option_ticker="o:aapl260221c00210000")
 
@@ -203,8 +203,8 @@ def test_get_contract_returns_domain_result_with_greeks() -> None:
 
 
 def test_get_contract_omits_greeks_when_disabled() -> None:
-    client = FakePolygonOptionsClient()
-    service = DefaultOptionsApplicationService(polygon_client=client)
+    client = FakeMassiveOptionsClient()
+    service = DefaultOptionsApplicationService(massive_client=client)
 
     result = service.get_contract(
         option_ticker="O:AAPL260221C00210000",

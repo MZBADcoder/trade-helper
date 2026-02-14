@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from app.infrastructure.clients.polygon import PolygonClient
+from app.infrastructure.clients.massive import MassiveClient
 
 
-def _build_client_with_stub(stub_client: object) -> PolygonClient:
-    client = PolygonClient.__new__(PolygonClient)
+def _build_client_with_stub(stub_client: object) -> MassiveClient:
+    client = MassiveClient.__new__(MassiveClient)
     client.api_key = "test"
     client._client = stub_client
     return client

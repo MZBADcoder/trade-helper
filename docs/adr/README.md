@@ -12,7 +12,7 @@
 
 ## 清单
 
-- `ADR-0001` 实时行情推送架构（服务端代理 Massive/Polygon WebSocket）
+- `ADR-0001` 实时行情推送架构（服务端代理 Massive WebSocket）
   - `/Users/mz/pmf/trader-helper/docs/adr/ADR-0001-realtime-market-data-streaming.md`
 - `ARCHITECTURE-BASELINE` 当前通用架构基线（非决策单）
   - `/Users/mz/pmf/trader-helper/docs/adr/ARCHITECTURE-BASELINE.md`

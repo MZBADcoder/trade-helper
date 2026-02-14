@@ -5,8 +5,8 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from app.core.config import settings
 from app.domain.market_data.schemas import MarketBar, MarketSnapshot
-from app.infrastructure.clients.polygon import PolygonClient
-from app.infrastructure.clients.polygon_mapper import map_polygon_aggregates_to_market_bars
+from app.infrastructure.clients.massive import MassiveClient
+from app.infrastructure.clients.massive_mapper import map_massive_aggregates_to_market_bars
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
@@ -17,10 +17,10 @@ class DefaultMarketDataApplicationService:
         self,
         *,
         uow: SqlAlchemyUnitOfWork,
-        polygon_client: PolygonClient | None = None,
+        massive_client: MassiveClient | None = None,
     ) -> None:
         self._uow = uow
-        self._polygon_client = polygon_client
+        self._massive_client = massive_client
 
     def list_bars(
         self,
@@ -68,10 +68,10 @@ class DefaultMarketDataApplicationService:
                     limit=limit,
                 )
 
-            if self._polygon_client is None:
-                raise ValueError("Polygon client not configured")
+            if self._massive_client is None:
+                raise ValueError("Massive client not configured")
 
-            bars = self._fetch_from_polygon(
+            bars = self._fetch_from_massive(
                 ticker=normalized,
                 timespan=normalized_timespan,
                 multiplier=multiplier,
@@ -117,11 +117,11 @@ class DefaultMarketDataApplicationService:
 
     def list_snapshots(self, *, tickers: list[str]) -> list[MarketSnapshot]:
         normalized_tickers = _normalize_tickers(tickers=tickers)
-        if self._polygon_client is None:
+        if self._massive_client is None:
             raise ValueError("MARKET_DATA_UPSTREAM_UNAVAILABLE")
 
         try:
-            payload = self._polygon_client.list_snapshots(tickers=normalized_tickers)
+            payload = self._massive_client.list_snapshots(tickers=normalized_tickers)
         except Exception as exc:
             raise ValueError(_map_market_data_upstream_error(exc)) from exc
 
@@ -138,7 +138,7 @@ class DefaultMarketDataApplicationService:
             return end_date - timedelta(days=settings.market_data_intraday_lookback_days)
         return end_date - timedelta(days=settings.market_data_daily_lookback_days)
 
-    def _fetch_from_polygon(
+    def _fetch_from_massive(
         self,
         *,
         ticker: str,
@@ -147,7 +147,7 @@ class DefaultMarketDataApplicationService:
         start_date: date,
         end_date: date,
     ) -> list[MarketBar]:
-        aggregates = self._polygon_client.list_aggs(
+        aggregates = self._massive_client.list_aggs(
             ticker=ticker,
             multiplier=multiplier,
             timespan=timespan,
@@ -157,7 +157,7 @@ class DefaultMarketDataApplicationService:
             sort="asc",
             limit=50000,
         )
-        return map_polygon_aggregates_to_market_bars(
+        return map_massive_aggregates_to_market_bars(
             ticker=ticker,
             timespan=timespan,
             multiplier=multiplier,

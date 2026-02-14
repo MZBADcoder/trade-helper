@@ -13,16 +13,16 @@ except ImportError:
         SDKRestClient = None  # type: ignore[assignment]
 
 
-class PolygonClient:
+class MassiveClient:
     def __init__(self, api_key: str, base_url: str = "https://api.massive.com") -> None:
         _ = base_url
         if not api_key:
-            raise ValueError("Polygon API key is not configured")
+            raise ValueError("Massive API key is not configured")
 
         self.api_key = api_key
         if SDKRestClient is None:
             raise RuntimeError(
-                "Polygon SDK is not installed. Add dependency 'massive' (or compatible 'polygon')."
+                "Massive SDK is not installed. Add dependency 'massive' (legacy package name 'polygon' also works)."
             )
         self._client = SDKRestClient(api_key)
 
@@ -150,7 +150,7 @@ class PolygonClient:
             except TypeError:
                 # SDK signatures vary by version; try next candidate.
                 continue
-        raise RuntimeError("Polygon SDK does not provide the requested method")
+        raise RuntimeError("Massive SDK does not provide the requested method")
 
     @staticmethod
     def _normalize_result_list(raw: Any) -> list[dict[str, Any]]:

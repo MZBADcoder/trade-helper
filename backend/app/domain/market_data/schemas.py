@@ -17,7 +17,7 @@ class MarketBar:
     volume: float
     vwap: float | None = None
     trades: int | None = None
-    source: str = "polygon"
+    source: str = "massive"
 
 
 @dataclass(slots=True)
