@@ -10,6 +10,8 @@
   - `/Users/mz/pmf/trader-helper/docs/frontend-design/prototype-v1.md`
 - 原型 V2（market-watch 增量设计：实时状态、期权链、降级策略）
   - `docs/frontend-design/prototype-v2-market-watch.md`
+- E2E 设计（基于 PRD-0001 + BE-0001/0002/0003 + V2 原型）
+  - `docs/frontend-design/E2E-0001-prd-0001-market-watch-playwright-test-design.md`
 
 ## 约定
 
