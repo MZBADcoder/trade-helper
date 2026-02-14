@@ -189,3 +189,59 @@ def test_list_bars_rejects_invalid_date_range() -> None:
             start_date=date(2024, 1, 5),
             end_date=date(2024, 1, 4),
         )
+
+
+def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = FakeMarketDataRepository(bars=[], coverage=None)
+    service = DefaultMarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        polygon_client=FailPolygonClient(),
+    )
+    captured_calls: list[dict[str, object]] = []
+
+    def fake_list_bars(
+        *,
+        ticker: str,
+        timespan: str,
+        multiplier: int = 1,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int | None = None,
+    ) -> list[MarketBar]:
+        captured_calls.append(
+            {
+                "ticker": ticker,
+                "timespan": timespan,
+                "multiplier": multiplier,
+                "start_date": start_date,
+                "end_date": end_date,
+                "limit": limit,
+            }
+        )
+        return []
+
+    monkeypatch.setattr(service, "list_bars", fake_list_bars)
+
+    service.prefetch_default(ticker=" aapl ")
+
+    assert len(captured_calls) == 2
+    assert captured_calls[0]["ticker"] == "AAPL"
+    assert captured_calls[0]["timespan"] == "day"
+    assert captured_calls[0]["multiplier"] == 1
+    assert captured_calls[0]["start_date"] is not None
+    assert captured_calls[0]["end_date"] is not None
+    assert captured_calls[0]["limit"] is None
+    assert captured_calls[1]["ticker"] == "AAPL"
+    assert captured_calls[1]["timespan"] == "minute"
+    assert captured_calls[1]["multiplier"] == 1
+
+
+def test_prefetch_default_rejects_blank_ticker() -> None:
+    repo = FakeMarketDataRepository(bars=[], coverage=None)
+    service = DefaultMarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        polygon_client=FailPolygonClient(),
+    )
+
+    with pytest.raises(ValueError, match="Ticker is required"):
+        service.prefetch_default(ticker="   ")

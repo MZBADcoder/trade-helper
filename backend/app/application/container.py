@@ -38,7 +38,9 @@ def build_watchlist_service() -> DefaultWatchlistApplicationService:
 
 
 def build_options_service() -> DefaultOptionsApplicationService:
-    return DefaultOptionsApplicationService()
+    return DefaultOptionsApplicationService(
+        polygon_client=_polygon_client(),
+    )
 
 
 def build_auth_service() -> DefaultAuthApplicationService:
