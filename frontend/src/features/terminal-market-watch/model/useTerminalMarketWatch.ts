@@ -218,7 +218,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       if (!targets.length) return;
 
       try {
-        const snapshots = await listMarketSnapshots(token, targets);
+        const batches = chunkSymbols(targets, 50);
+        const responses = await Promise.all(batches.map((batch) => listMarketSnapshots(token, batch)));
+        const snapshots = responses.flat();
         mergeSnapshots(snapshots, "REST");
         setLastSyncAt(new Date().toISOString());
 
@@ -754,7 +756,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
       try {
         await deleteWatchlist(token, symbol);
-        setSelectedContractTicker((current) => (current === symbol ? null : current));
+        setSelectedContractTicker((current) =>
+          optionTickerBelongsToUnderlying(current, symbol) ? null : current
+        );
         await refreshWatchlist();
       } catch (error: any) {
         setWatchlistError(error?.message ?? "Failed to delete ticker.");
@@ -838,7 +842,7 @@ function marketQueryForTimeframe(timeframe: TimeframeKey): {
 } {
   switch (timeframe) {
     case "minute":
-      return { timespan: "minute", multiplier: 1, fromDays: -14, limit: 4000 };
+      return { timespan: "minute", multiplier: 1, fromDays: -3, limit: 4500 };
     case "week":
       return { timespan: "week", multiplier: 1, fromDays: -3650, limit: 700 };
     case "month":
@@ -851,6 +855,22 @@ function marketQueryForTimeframe(timeframe: TimeframeKey): {
 
 function normalizeSymbol(value: string | null | undefined): string {
   return (value ?? "").trim().toUpperCase();
+}
+
+function optionTickerBelongsToUnderlying(optionTicker: string | null, underlying: string): boolean {
+  if (!optionTicker) return false;
+  const normalizedTicker = normalizeSymbol(optionTicker);
+  const normalizedUnderlying = normalizeSymbol(underlying);
+  return normalizedTicker.startsWith(`O:${normalizedUnderlying}`);
+}
+
+function chunkSymbols(symbols: string[], size: number): string[][] {
+  if (size <= 0) return [symbols];
+  const chunks: string[][] = [];
+  for (let index = 0; index < symbols.length; index += size) {
+    chunks.push(symbols.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function createEmptySnapshot(symbol: string): MarketSnapshot {
