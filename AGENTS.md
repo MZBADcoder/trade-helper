@@ -88,7 +88,9 @@ Dependency wiring lives in:
 Run before commit (in `backend/`):
 
 1. `python3 scripts/check_boundaries.py --root . --package app`
-2. `python3 -m pytest -q`
+2. `poetry run python3 -m pytest -q`
+
+Local sandbox uses Poetry-managed environment. Run backend checks and tests through `poetry run`.
 
 If `pytest` is unavailable in current environment, state that explicitly in the delivery note.
 
