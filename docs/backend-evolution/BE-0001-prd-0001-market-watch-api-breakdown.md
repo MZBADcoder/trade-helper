@@ -1,5 +1,11 @@
 # BE-0001 — PRD-0001 后端接口拆分（实时行情 / 数据观察）
 
+## 0. 执行状态更新（2026-02-16）
+
+- 当前迭代优先完成 Stock 数据主线。
+- options 后端相关开发进入 HOLD，待 Stock 主线里程碑完成后恢复。
+- 本文 options 相关条目保留为下一阶段基线，不纳入当前阶段验收。
+
 ## 1. Context
 
 - Source PRD: `/Users/mz/pmf/trader-helper/docs/prd/PRD-0001-market-watch.md`
@@ -30,10 +36,10 @@
 | Method | Path | Purpose | Auth | Priority |
 |---|---|---|---|---|
 | GET | `/api/v1/market-data/snapshots` | 批量获取 ticker 快照（Last/Change/%Change/UpdatedAt 等） | Yes | P0 |
-| WS | `/api/v1/market-data/stream` | 实时推送（股票/期权） | Yes | P0 |
-| GET | `/api/v1/options/expirations` | 获取某 underlying 的到期列表 | Yes | P0 |
-| GET | `/api/v1/options/chain` | 获取某 underlying + expiration 的期权链快照 | Yes | P0 |
-| GET | `/api/v1/options/contracts/{option_ticker}` | 获取单合约详情/快照（用于合约详情页） | Yes | P1 |
+| WS | `/api/v1/market-data/stream` | 实时推送（股票；期权推送 HOLD） | Yes | HOLD |
+| GET | `/api/v1/options/expirations` | 获取某 underlying 的到期列表 | Yes | HOLD |
+| GET | `/api/v1/options/chain` | 获取某 underlying + expiration 的期权链快照 | Yes | HOLD |
+| GET | `/api/v1/options/contracts/{option_ticker}` | 获取单合约详情/快照（用于合约详情页） | Yes | HOLD |
 
 ### 3.2 API Updates（建议调整/澄清）
 
@@ -110,14 +116,14 @@
 
 1) 先稳定现有 `auth/watchlist/market-data/bars`（输入校验、分页/分段策略、错误码一致性）。  
 2) 新增 `market-data/snapshots`（先 REST 实现，满足 watchlist 行展示）。  
-3) 新增 `options/expirations` + `options/chain`（先 REST，实现最小 options 观察）。  
+3) 新增 `options/expirations` + `options/chain`（HOLD，待 Stock 主线完成后恢复）。  
 4) 增加 realtime 进程 + `market-data/stream`（WS 推送；并落地降级策略）。  
 5) 接入 Redis 广播与多实例扇出验证（本地 Compose → 多实例）。  
 
 ## 8. Acceptance Checklist
 
 - [ ] `/terminal` 端到端不依赖 mock（bars + snapshot 可用）
-- [ ] options chain 可加载（到期列表 + chain）
+- [ ] options chain 可加载（到期列表 + chain，HOLD，下一阶段验收）
 - [ ] WS 推送可用，且具备断线重连与服务端配额保护
 - [ ] 超限/降级状态可见（便于排障与成本控制）
 - [ ] WebSocket 鉴权失败有明确错误码/提示

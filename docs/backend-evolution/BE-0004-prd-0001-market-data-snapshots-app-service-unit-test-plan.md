@@ -1,5 +1,11 @@
 # BE-0004 - PRD-0001 Market Data + Options Application Service Unit Test 计划
 
+## 0. 执行状态更新（2026-02-16）
+
+- 当前迭代仅推进 market-data（stock 主线）相关测试补齐。
+- options 相关开发与扩展测试进入 HOLD。
+- 本文 options 清单保留为下一阶段恢复开发时的执行输入，不纳入当前阶段必做项。
+
 ## 1. 目标与范围
 
 本文统一定义以下两个 application service 的 unit test plan（TDD 输入）：
@@ -117,11 +123,11 @@
 2. Phase B（market-data 强化）
    - 按第 4.1~4.3 扩展，先 `list_snapshots`，再 `prefetch_default`
 3. Phase C（options 实现驱动）
-   - 先保持 stub 行为测试为绿，再按第 4.4~4.6 逐步替换为真实行为测试
+   - HOLD：先保持已有测试为绿，待 Stock 主线完成后再按第 4.4~4.6 逐步替换为真实行为测试
 
 ## 6. 完成标准
 
 - 上述 6 个公有方法均有对应单测方法并通过
 - market-data 方法覆盖成功路径 + 关键失败路径
-- options 方法当前 stub 行为有保护性测试，后续实现时可平滑替换
+- options 方法当前仅保持已有测试不回归，扩展覆盖待 HOLD 解除后补齐
 - 全程保持 No Interfaces（不引入 `Protocol/ABC`）

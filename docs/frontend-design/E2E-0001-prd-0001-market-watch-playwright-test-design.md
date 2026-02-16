@@ -14,13 +14,19 @@
 
 > 本文档用于定义 Web Trader Terminal 的 E2E 测试方案，目标是补齐 Unit Test 之外的跨层回归保护。
 
+## 0.1 执行状态更新（2026-02-16）
+
+- 当前迭代 E2E 仅覆盖 Stock 数据主线能力。
+- options 相关 E2E 场景进入 HOLD，待 Stock 主线完成后恢复。
+- 本文 options 用例保留为下一阶段测试输入，不纳入当前阶段门禁。
+
 ---
 
 ## 1. 目标与原则
 
 ### 1.1 目标
 
-1. 覆盖 PRD-0001 的关键业务闭环：`登录 -> /terminal -> watchlist -> bars -> options -> 实时状态/降级`。
+1. 覆盖 PRD-0001 的关键业务闭环：`登录 -> /terminal -> watchlist -> bars -> 实时状态/降级`。
 2. 在 CI 中提供可重复、可观测的回归检查，减少“代码能编译但链路不可用”的风险。
 3. 形成 smoke/regression 分层，控制执行时长并优先保护高价值路径。
 
@@ -38,7 +44,6 @@
 
 - F1：登录与 watchlist 管理（增删查、刷新不丢失）。
 - F2：股票行情（首屏 bars + snapshots，详情随实时数据更新）。
-- F3：期权观察（expirations -> chain -> contract detail）。
 - F4：系统状态与降级（WS 断线重连、Degraded 轮询、恢复后补拉）。
 - F5：订阅上限与提示（超限反馈，不拖垮系统）。
 
@@ -46,6 +51,7 @@
 
 - 真实下单交易流程（PRD 非目标）。
 - PRD-0002 的 IV 告警策略验证。
+- options 观察闭环（expirations -> chain -> contract detail），当前阶段 HOLD。
 - 全市场扫描、热力图、多窗口布局等 Nice-to-have 视觉能力。
 
 ---
@@ -66,8 +72,8 @@
 - `@smoke`
 - `@regression`
 - `@degraded`
-- `@options`
 - `@auth`
+- `@options`（HOLD，下一阶段恢复）
 
 ---
 
@@ -88,7 +94,7 @@
 ### 4.3 测试数据（稳定性优先）
 
 - 默认通道（smoke/regression）使用可控数据模式：
-  - watchlist、bars、options 返回固定可预期数据；
+  - watchlist、bars 返回固定可预期数据；
   - WS 推送使用可重放事件序列（便于断言更新时间与状态切换）。
 - canary 通道使用真实第三方数据，仅断言“链路可用/字段完整/状态可见”，不做强数值断言。
 
@@ -109,7 +115,6 @@ frontend/e2e/
     smoke/
       auth-and-terminal.spec.ts
       watchlist-and-bars.spec.ts
-      options-basic-flow.spec.ts
       ws-degraded-recovery.spec.ts
     regression/
       subscription-limit.spec.ts
@@ -132,7 +137,7 @@ frontend/e2e/
 
 - `login.page.ts`：登录/注册入口、鉴权状态判断。
 - `terminal.page.ts`：watchlist 操作、ticker 切换、bars 区域断言、状态栏断言。
-- `options.page.ts`：expiration/chain/contract detail 操作与断言。
+- `options.page.ts`：HOLD，下一阶段恢复使用。
 
 ### 5.2 选择器规范
 
@@ -142,8 +147,8 @@ frontend/e2e/
   - `status-connection`
   - `status-data-latency`
   - `bars-chart-main`
-  - `options-expiration-select`
-  - `options-chain-row-{optionTicker}`
+  - `options-expiration-select`（HOLD）
+  - `options-chain-row-{optionTicker}`（HOLD）
   - `contract-detail-last`
 
 ---
@@ -155,11 +160,11 @@ frontend/e2e/
 | E2E-MW-001 | `@smoke @auth` | PRD F1, V2 4.1 | 登录后进入 `/terminal` 完成首屏加载 | watchlist 可见；snapshots 字段（Last/Change/%Change/UpdatedAt）可见；状态栏显示 `Connected` 或 `Degraded` |
 | E2E-MW-002 | `@smoke` | PRD F1, V1 交互 | watchlist 增删查并刷新页面 | 新增 ticker 后列表存在；删除后消失；刷新后结果保持一致 |
 | E2E-MW-003 | `@smoke` | PRD F2, V2 4.2 | 切换 ticker，加载 bars 与详情指标 | `bars` 图表区域有数据；symbol header 与选中 ticker 一致；更新时间发生变化 |
-| E2E-MW-004 | `@smoke @options` | PRD F3, V2 4.3 | options 基础闭环 | expiration 列表成功加载；chain 行可点击；contract detail 展示 `Bid/Ask/Last/IV/Volume/OI` 或 `-` |
+| E2E-MW-004 | `@smoke @options` | PRD F3, V2 4.3 | options 基础闭环（HOLD） | 暂不纳入当前阶段执行 |
 | E2E-MW-005 | `@smoke @degraded` | PRD F4, V2 4.4 | WS 断线降级与恢复 | 断线后状态变 `Reconnecting/Degraded`；轮询数据仍更新；恢复后状态回 `Connected` |
 | E2E-MW-006 | `@regression` | PRD F5, BE-0002 WS | 超过订阅上限 | UI 出现“订阅上限”提示；后续订阅动作被拒绝且已有页面不崩溃 |
 | E2E-MW-007 | `@regression @auth` | BE-0002 WS 鉴权 | WS 鉴权失败 | 连接被拒绝并显示可读错误状态（未登录/登录失效） |
-| E2E-MW-008 | `@regression @options` | PRD F3, V2 6.3 | 上游字段缺失兜底 | options 表格缺失字段显示 `-`，tooltip 显示来源限制 |
+| E2E-MW-008 | `@regression @options` | PRD F3, V2 6.3 | 上游字段缺失兜底（HOLD） | 暂不纳入当前阶段执行 |
 | E2E-MW-009 | `@regression` | PRD 路由约定 | `/demo` 与 `/terminal` 数据链路隔离 | `/demo` 在后端异常时仍可访问；`/terminal` 严格展示真实链路状态 |
 
 ---
@@ -170,11 +175,9 @@ frontend/e2e/
 
 - 关键接口响应成功时，至少断言：
   - `snapshots.items[*].updated_at`
-  - `options.chain.items[*].option_ticker`
   - `bars` 数据存在且 UI 可渲染
 - 错误场景可通过 UI 文案映射验证以下 code：
   - `MARKET_DATA_UPSTREAM_UNAVAILABLE`
-  - `OPTIONS_CHAIN_NOT_FOUND`
   - `MARKET_DATA_RATE_LIMITED`
 
 ### 7.2 WebSocket
@@ -212,8 +215,9 @@ frontend/e2e/
 ## 9. 落地里程碑
 
 1. M1：搭建 Playwright 基础工程与 `@smoke` 4 条核心用例（E2E-MW-001~005 中选 4 条）。
-2. M2：补齐 options、降级恢复、订阅上限场景（覆盖 E2E-MW-006~008）。
-3. M3：接入 canary-realtime，形成“稳定回归 + 真实行情探针”双通道。
+2. M2：补齐降级恢复、订阅上限场景（覆盖 E2E-MW-006~007）。
+3. M2.1：options 场景（E2E-MW-004/E2E-MW-008）保持 HOLD，待 Stock 主线完成后恢复。
+4. M3：接入 canary-realtime，形成“稳定回归 + 真实行情探针”双通道。
 
 ---
 
@@ -225,4 +229,3 @@ frontend/e2e/
   - 应对：断言基于状态与事件顺序，不依赖固定数值；统一超时与重试策略。
 - 风险：页面频繁重构导致选择器失效。
   - 应对：强制 `data-testid` 规范，PR 中把 UI 结构变更与测试更新一起提交。
-

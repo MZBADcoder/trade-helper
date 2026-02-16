@@ -1,5 +1,6 @@
 # TODO（架构落地待办）
 
+- [HOLD] 后端/前端期权相关开发（options API、options UI、options E2E）暂停；待 Stock 数据主线里程碑完成后恢复。
 - [ ] 明确 Massive 上游订阅配额与最大并发连接限制，补充订阅上限策略与告警阈值。
 - [ ] 设计 Redis Pub/Sub 的频道命名与消息 envelope 版本管理策略。
 - [ ] 定义 WebSocket 心跳/重连的前后端约定与超时阈值。

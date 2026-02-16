@@ -1,5 +1,11 @@
 # BE-0002 - PRD-0001 行情接口合同设计（v1）
 
+## 0. 执行状态更新（2026-02-16）
+
+- 当前迭代仅推进 Stock 数据主线。
+- 期权后端开发（`/api/v1/options/*` 与期权相关 WS 订阅部分）进入 HOLD。
+- 本文 options 合同仍保留，作为下一阶段恢复开发时的接口基线；不作为当前阶段验收项。
+
 ## 1. Context
 
 - Source PRD:
@@ -19,10 +25,10 @@
 | Method | Path | Purpose | Auth | Priority |
 |---|---|---|---|---|
 | GET | `/api/v1/market-data/snapshots` | 批量获取 ticker 最新快照（watchlist 首屏/轮询兜底） | Yes | P0 |
-| GET | `/api/v1/options/expirations` | 获取某 underlying 可选到期日列表 | Yes | P0 |
-| GET | `/api/v1/options/chain` | 获取某 underlying + expiration 的期权链快照 | Yes | P0 |
-| GET | `/api/v1/options/contracts/{option_ticker}` | 获取单个期权合约详情与行情快照 | Yes | P1 |
-| WS | `/api/v1/market-data/stream` | 订阅股票/期权实时增量消息 | Yes | P0 |
+| GET | `/api/v1/options/expirations` | 获取某 underlying 可选到期日列表 | Yes | HOLD |
+| GET | `/api/v1/options/chain` | 获取某 underlying + expiration 的期权链快照 | Yes | HOLD |
+| GET | `/api/v1/options/contracts/{option_ticker}` | 获取单个期权合约详情与行情快照 | Yes | HOLD |
+| WS | `/api/v1/market-data/stream` | 订阅股票实时增量消息（期权推送 HOLD） | Yes | P0 |
 
 ### 2.2 API Updates
 
@@ -100,7 +106,7 @@ Query 参数：
 - `429 MARKET_DATA_RATE_LIMITED`
 - `502 MARKET_DATA_UPSTREAM_UNAVAILABLE`
 
-### 3.3 `GET /api/v1/options/expirations`
+### 3.3 `GET /api/v1/options/expirations`（HOLD，下一阶段恢复）
 
 #### Request
 
@@ -135,7 +141,7 @@ Query 参数：
 - `404 OPTIONS_UNDERLYING_NOT_FOUND`
 - `502 OPTIONS_UPSTREAM_UNAVAILABLE`
 
-### 3.4 `GET /api/v1/options/chain`
+### 3.4 `GET /api/v1/options/chain`（HOLD，下一阶段恢复）
 
 #### Request
 
@@ -183,7 +189,7 @@ Query 参数：
 - `404 OPTIONS_CHAIN_NOT_FOUND`
 - `502 OPTIONS_UPSTREAM_UNAVAILABLE`
 
-### 3.5 `GET /api/v1/options/contracts/{option_ticker}`
+### 3.5 `GET /api/v1/options/contracts/{option_ticker}`（HOLD，下一阶段恢复）
 
 #### Request
 
@@ -348,11 +354,14 @@ Query 参数（v1 固化）：
    - 固化 OpenAPI 字段、枚举、错误码
    - 前端先按合同接入 mock adapter
 2. Phase 2（REST 能力落地）
-   - 实现 snapshots + options 三组 REST
+   - 实现 snapshots（stock 主线）
    - 完成 bars 参数校验与兼容回归
 3. Phase 3（实时能力落地）
    - 实现 WS 鉴权、订阅协议、心跳与配额
    - 验证断线重连与 REST 轮询降级协同
+4. Phase 4（options 恢复阶段）
+   - 恢复 options 三组 REST 与对应验收
+   - 恢复期权相关 WS 订阅能力
 
 ## 6. Acceptance Checklist
 

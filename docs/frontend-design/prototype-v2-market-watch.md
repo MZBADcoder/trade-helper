@@ -12,6 +12,12 @@
 
 > 本文档在 `prototype-v1.md` 的基础上，只定义 PRD-0001（market-watch）新增/调整的前端设计，不覆盖 PRD-0002（IV 告警）。
 
+## 0.1 执行状态更新（2026-02-16）
+
+- 当前迭代仅推进 Stock 数据主线前端能力。
+- options 相关前端开发进入 HOLD（包括 options workspace 深化、联调与验收）。
+- 本文中的 options 设计内容保留为下一阶段恢复时的基线，不作为当前迭代必做项。
+
 ---
 
 ## 1. 本轮设计目标
@@ -20,7 +26,7 @@
 
 1. Watchlist 行情从“静态列表”升级为“实时可更新列表”（Last/Change/%Change/UpdatedAt）。
 2. 详情区支持「首屏 REST + 增量 WS + 断线降级轮询」的数据体验。
-3. 新增 options 观察视图（到期列表 + 期权链 + 合约详情）。
+3. 新增 options 观察视图（到期列表 + 期权链 + 合约详情，HOLD）。
 4. 增加系统状态可视化（连接状态、数据来源、延迟标识）。
 
 ---
@@ -31,7 +37,6 @@
 
 - `/terminal` 页面结构升级（watchlist / stock detail / options / status）。
 - 新增实时状态组件：连接状态、最后更新时间、降级提示。
-- 新增 options chain 浏览能力与单合约详情面板。
 - 新增 WS 订阅生命周期（建立、续订、退订、重连）。
 
 ### 2.2 Out of Scope
@@ -39,6 +44,7 @@
 - 不做策略、告警、扫描器 UI。
 - 不做真实交易下单 UI。
 - 不做 demo 路由改造（`/demo` 仍保持本地模拟用途）。
+- options 相关交互深化与联调（expirations/chain/contract detail）在当前迭代 HOLD。
 
 ---
 
@@ -88,7 +94,7 @@
 3. 重置 detail 区临时状态，保留 watchlist 实时流。
 4. 当第一条该 ticker WS 增量到达后，更新 detail “最后更新时间”。
 
-### 4.3 用户打开 options 视图
+### 4.3 用户打开 options 视图（HOLD，下一阶段恢复）
 
 1. 请求 `options/expirations?underlying=`。
 2. 默认选择最近可交易到期，加载 `options/chain`。
@@ -184,9 +190,9 @@
 
 ## 9. 验收标准（前端设计层）
 
-- `/terminal` 能同时承载股票与期权观察，不再只依赖静态详情标签。
+- `/terminal` 当前阶段优先承载股票观察能力，并保留 options 区域占位与恢复接口。
 - 用户可以感知连接与延迟状态，断线后界面仍有可用数据。
-- options 视图可完成“到期 -> 链 -> 合约详情”完整闭环。
+- options 视图“到期 -> 链 -> 合约详情”闭环为下一阶段验收项（当前 HOLD）。
 - 关键字段与错误场景有明确兜底显示，不出现空白区域无提示。
 
 ---
@@ -195,6 +201,5 @@
 
 1. 从“股票详情标签管理”扩展到“market-watch 工作台”。
 2. 新增实时状态体系（WS + Degraded polling）。
-3. 新增 options 观察交互与数据结构。
-4. API 依赖从 `auth/watchlist/bars` 扩展到 `snapshots + options + stream`。
-
+3. options 观察交互与数据结构已设计但当前阶段 HOLD。
+4. 当前阶段 API 依赖优先 `auth/watchlist/bars/snapshots/stream`，options 相关依赖待恢复。

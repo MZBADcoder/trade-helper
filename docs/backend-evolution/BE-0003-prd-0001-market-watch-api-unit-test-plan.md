@@ -1,14 +1,20 @@
 # BE-0003 - PRD-0001 新增/修改接口 Unit Test 设计（基于 BE-0002 合同）
 
+## 0. 执行状态更新（2026-02-16）
+
+- 当前迭代仅推进 Stock 数据主线相关 API 测试。
+- options API 测试进入 HOLD，待 Stock 主线里程碑完成后恢复。
+- 本文 options 测试清单保留为下一阶段执行输入，不作为当前阶段必做项。
+
 ## 1. 目标与范围
 
 本文定义 **API 层**（FastAPI `api/v1/endpoints/*`）的 unit test 设计，用于覆盖 BE-0002 中的：
 
 - **新增 REST**：
   - `GET /api/v1/market-data/snapshots`
-  - `GET /api/v1/options/expirations`
-  - `GET /api/v1/options/chain`
-  - `GET /api/v1/options/contracts/{option_ticker}`
+  - `GET /api/v1/options/expirations`（HOLD）
+  - `GET /api/v1/options/chain`（HOLD）
+  - `GET /api/v1/options/contracts/{option_ticker}`（HOLD）
 - **新增 WS**：
   - `WS /api/v1/market-data/stream`
 - **修改 REST**：
@@ -97,7 +103,7 @@
 - application service 触发限流：`429 MARKET_DATA_RATE_LIMITED`
 - 上游不可用：`502 MARKET_DATA_UPSTREAM_UNAVAILABLE`
 
-### 4.2 `GET /api/v1/options/expirations`
+### 4.2 `GET /api/v1/options/expirations`（HOLD，下一阶段恢复）
 
 **成功路径**
 
@@ -116,7 +122,7 @@
 - underlying 不存在：`404 OPTIONS_UNDERLYING_NOT_FOUND`
 - 上游不可用：`502 OPTIONS_UPSTREAM_UNAVAILABLE`
 
-### 4.3 `GET /api/v1/options/chain`
+### 4.3 `GET /api/v1/options/chain`（HOLD，下一阶段恢复）
 
 **成功路径**
 
@@ -138,7 +144,7 @@
 
 > 说明：上面两条 “或单独错误码” 是为了提前暴露合同里未细化的部分。建议实现阶段将其拆为更明确的错误码并同步 BE-0002。
 
-### 4.4 `GET /api/v1/options/contracts/{option_ticker}`
+### 4.4 `GET /api/v1/options/contracts/{option_ticker}`（HOLD，下一阶段恢复）
 
 **成功路径**
 
@@ -208,6 +214,5 @@
 
 1. `market-data/bars` 参数校验与错误映射（回归风险最高）
 2. `market-data/snapshots`（watchlist 首屏关键路径）
-3. `options/*` 三个 REST（前端链路所需）
+3. `options/*` 三个 REST（HOLD，待 Stock 主线完成后恢复）
 4. `market-data/stream`（协议与心跳，单独跑/可标记为较慢的测试组）
-
