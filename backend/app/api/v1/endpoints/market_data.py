@@ -65,16 +65,29 @@ def list_bars(
             message="requested range is too large",
         )
     try:
-        bars = service.list_bars(
-            ticker=symbol,
-            timespan=normalized_timespan,
-            multiplier=multiplier,
-            start_date=from_date,
-            end_date=to_date,
-            limit=limit,
-        )
-        response.headers["X-Data-Source"] = "REST"
-        response.headers["X-Partial-Range"] = "false"
+        if hasattr(service, "list_bars_with_meta"):
+            result = service.list_bars_with_meta(
+                ticker=symbol,
+                timespan=normalized_timespan,
+                multiplier=multiplier,
+                start_date=from_date,
+                end_date=to_date,
+                limit=limit,
+            )
+            bars = result.bars
+            response.headers["X-Data-Source"] = result.data_source
+            response.headers["X-Partial-Range"] = "true" if result.partial_range else "false"
+        else:
+            bars = service.list_bars(
+                ticker=symbol,
+                timespan=normalized_timespan,
+                multiplier=multiplier,
+                start_date=from_date,
+                end_date=to_date,
+                limit=limit,
+            )
+            response.headers["X-Data-Source"] = "REST"
+            response.headers["X-Partial-Range"] = "false"
         return [to_market_bar_out(bar) for bar in bars]
     except ValueError as exc:
         _raise_market_data_service_error(exc)

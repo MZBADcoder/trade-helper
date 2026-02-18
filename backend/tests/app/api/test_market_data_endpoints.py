@@ -52,6 +52,6 @@ def test_bars_success_sets_contract_headers(api_client, market_data_service) -> 
     )
 
     assert response.status_code == 200
-    assert response.headers["X-Data-Source"] in {"CACHE", "REST", "DB"}
+    assert response.headers["X-Data-Source"] in {"REST", "DB", "DB_AGG", "DB_AGG_MIXED"}
     assert response.headers["X-Partial-Range"] in {"true", "false"}
     assert market_data_service.list_bars_calls[0]["ticker"] == "AAPL"

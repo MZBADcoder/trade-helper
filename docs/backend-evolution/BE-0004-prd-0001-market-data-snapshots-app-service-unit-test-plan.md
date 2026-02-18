@@ -1,133 +1,132 @@
-# BE-0004 - PRD-0001 Market Data + Options Application Service Unit Test 计划
+# BE-0004 - PRD-0001 Market Data + Options Application Service Unit Test 计划（更新版）
 
-## 0. 执行状态更新（2026-02-16）
+## 0. 执行状态更新（2026-02-18）
 
-- 当前迭代仅推进 market-data（stock 主线）相关测试补齐。
-- options 相关开发与扩展测试进入 HOLD。
-- 本文 options 清单保留为下一阶段恢复开发时的执行输入，不纳入当前阶段必做项。
+- `Default*ApplicationService` 命名已移除，当前类名为 `MarketDataApplicationService` / `OptionsApplicationService`。
+- `market-data` 已按 BE-0005 落地混合策略：`day/minute` 基准表 + `5m/15m/60m` 预聚合 + 未完结桶实时补算。
+- 已新增并通过：
+  - `backend/tests/app/domain/test_market_data_aggregation.py`（DST、60m 收盘截断、桶完结判定）
+  - `backend/tests/app/domain/test_market_data_service.py`（`list_bars_with_meta` 混合返回、预聚合作业）
+- options 相关开发仍处于 HOLD，但当前基础 application tests 继续保留并保持绿灯。
 
 ## 1. 目标与范围
 
-本文统一定义以下两个 application service 的 unit test plan（TDD 输入）：
+本文定义以下两个 application service 的 unit test plan（TDD 输入）：
 
 - `backend/app/application/market_data/service.py`
 - `backend/app/application/options/service.py`
 
 覆盖方法（全部公有方法）：
 
-- `DefaultMarketDataApplicationService.list_bars`
-- `DefaultMarketDataApplicationService.prefetch_default`
-- `DefaultMarketDataApplicationService.list_snapshots`
-- `DefaultOptionsApplicationService.list_expirations`
-- `DefaultOptionsApplicationService.list_chain`
-- `DefaultOptionsApplicationService.get_contract`
+- `MarketDataApplicationService.list_bars`
+- `MarketDataApplicationService.list_bars_with_meta`
+- `MarketDataApplicationService.prefetch_default`
+- `MarketDataApplicationService.list_snapshots`
+- `MarketDataApplicationService.precompute_minute_aggregates`
+- `MarketDataApplicationService.enforce_minute_retention`
+- `OptionsApplicationService.list_expirations`
+- `OptionsApplicationService.list_chain`
+- `OptionsApplicationService.get_contract`
 
 测试边界：
 
 - 仅测 application service 编排、输入防御、错误语义
 - 不触达真实 Massive/Redis/DB/WS
-- endpoint 的 HTTP 状态码映射继续由 API 层单测承担（见 `BE-0003`）
+- HTTP 状态码映射由 API 层单测承担（见 `BE-0003`）
 
 ## 2. 测试文件与替身设计
 
-建议测试文件：
+建议测试文件（现状）：
 
-- `backend/tests/app/domain/test_market_data_service.py`（已有，继续承载 `list_bars/prefetch_default`）
-- `backend/tests/app/application/test_market_data_app_service_snapshots.py`（新增，承载 `list_snapshots`）
-- `backend/tests/app/application/test_options_app_service.py`（新增，承载 options 三个方法）
+- `backend/tests/app/domain/test_market_data_service.py`（`list_bars/list_bars_with_meta/prefetch_default/precompute_minute_aggregates`）
+- `backend/tests/app/domain/test_market_data_aggregation.py`（分桶与聚合纯函数）
+- `backend/tests/app/application/test_market_data_app_service_snapshots.py`（`list_snapshots`）
+- `backend/tests/app/application/test_options_app_service.py`（options 三个方法）
 
 建议替身：
 
-- `FakeUoW` + `FakeMarketDataRepository`（已存在，可复用）
-- `FakeMassiveClient`（聚合 bars）
-- `FakeMassiveSnapshotClient`（快照）
-- `RateLimited*Client` / `Failing*Client`（错误语义测试）
-- options 侧暂以最小替身驱动（当前方法未接入依赖）
+- `FakeUoW` + `FakeMarketDataRepository`
+- `FakeMassiveClient` / `FailMassiveClient`
+- `FakeMassiveSnapshotClient`
+- options 侧 `FakeMassiveOptionsClient`
 
-## 3. 每个方法至少 1 个测试方法（最小集合）
+## 3. 最小方法覆盖（每个公有方法至少 1 条）
 
 ### 3.1 Market Data
 
 1. `list_bars`
-   - `test_list_bars_uses_cache_when_coverage_sufficient`
-2. `prefetch_default`
+   - `test_list_day_bars_reads_db_when_coverage_hit`
+2. `list_bars_with_meta`
+   - `test_list_minute_aggregated_returns_db_agg_mixed_for_open_bucket`
+3. `prefetch_default`
    - `test_prefetch_default_calls_list_bars_with_normalized_ticker`
-3. `list_snapshots`
+4. `list_snapshots`
    - `test_list_snapshots_returns_mapped_domain_snapshots`
+5. `precompute_minute_aggregates`
+   - `test_precompute_minute_aggregates_only_writes_final_buckets`
+6. `enforce_minute_retention`
+   - 待补：新增最小成功路径与参数校验测试
 
 ### 3.2 Options
 
 1. `list_expirations`
-   - `test_list_expirations_raises_options_upstream_unavailable_until_implemented`
+   - `test_list_expirations_returns_grouped_result`
 2. `list_chain`
-   - `test_list_chain_raises_options_upstream_unavailable_until_implemented`
+   - `test_list_chain_returns_domain_result`
 3. `get_contract`
-   - `test_get_contract_raises_options_upstream_unavailable_until_implemented`
+   - `test_get_contract_returns_domain_result_with_greeks`
 
-## 4. 扩展用例清单（建议一次补齐）
+## 4. 扩展用例清单（BE-0005 对齐）
 
-### 4.1 `list_bars`
+### 4.1 `list_bars` / `list_bars_with_meta`
 
-- `test_list_bars_fetches_massive_when_cache_missing`
-- `test_list_bars_rejects_invalid_date_range`
-- `test_list_bars_rejects_blank_ticker`
-- `test_list_bars_rejects_blank_timespan`
-- `test_list_bars_rejects_multiplier_less_than_1`
-- `test_list_bars_raises_when_massive_client_missing_and_cache_insufficient`
-- `test_list_bars_commits_when_massive_returns_bars`
-- `test_list_bars_skips_commit_when_massive_returns_empty`
+- `test_list_minute_baseline_fetches_massive_when_missing`
+- `test_list_minute_aggregated_fallbacks_to_rest_when_preagg_empty`
+- 覆盖 `X-Data-Source` 语义对应的数据来源：
+  - `DB`
+  - `REST`
+  - `DB_AGG`
+  - `DB_AGG_MIXED`
+- `multiplier` 非 `{1,5,15,60}` 时的兜底行为（feature flag 开/关）
 
-### 4.2 `prefetch_default`
+### 4.2 聚合纯函数（`domain/market_data/aggregation.py`）
 
-- `test_prefetch_default_rejects_blank_ticker`
-- `test_prefetch_default_normalizes_ticker_to_uppercase`
-- `test_prefetch_default_uses_daily_lookback_window`（可用 monkeypatch 固定 `date.today()`）
+- `test_resolve_bucket_bounds_handles_dst_offset`
+- `test_resolve_bucket_bounds_60m_supports_close_truncated_bucket`
+- `test_aggregate_minute_bars_skips_unfinished_when_requested`
+- 增补：跨日边界、空输入、`multiplier<=0` 的防御用例
 
-### 4.3 `list_snapshots`
+### 4.3 `precompute_minute_aggregates`
 
-- `test_list_snapshots_rejects_empty_tickers`
-- `test_list_snapshots_rejects_invalid_symbol`
-- `test_list_snapshots_deduplicates_and_uppercases_symbols`
-- `test_list_snapshots_rejects_more_than_50_symbols`
-- `test_list_snapshots_returns_empty_list_when_upstream_empty`
-- `test_list_snapshots_raises_rate_limited_when_upstream_limited`
-- `test_list_snapshots_raises_upstream_unavailable_for_unexpected_error`
-- `test_list_snapshots_raises_upstream_unavailable_when_client_missing`
+- 非法倍率（非 `5/15/60`）报错
+- `lookback_trade_days < 1` 报错
+- 多 ticker 增量 upsert 的幂等重跑
 
-### 4.4 `list_expirations`
+### 4.4 `enforce_minute_retention`
 
-- `test_list_expirations_validates_underlying_format`（实现后）
-- `test_list_expirations_validates_limit_range`（实现后）
-- `test_list_expirations_maps_upstream_result_to_domain`（实现后）
-- `test_list_expirations_maps_not_found_to_options_underlying_not_found`（实现后）
+- `keep_trade_days < 1` 报错
+- 删除数量汇总正确（`minute_deleted` / `minute_agg_deleted`）
+- 无删除场景不提交事务
 
-### 4.5 `list_chain`
+### 4.5 `list_snapshots`
 
-- `test_list_chain_validates_expiration_format`（实现后）
-- `test_list_chain_validates_strike_range`（实现后）
-- `test_list_chain_validates_option_type`（实现后）
-- `test_list_chain_maps_upstream_result_to_domain`（实现后）
-- `test_list_chain_maps_invalid_cursor_error`（实现后）
+- invalid ticker、>50 ticker、上游限流/不可用映射
+- Massive 不同 payload 形态映射一致性
 
-### 4.6 `get_contract`
+### 4.6 Options（HOLD，维护不回归）
 
-- `test_get_contract_validates_option_ticker_format`（实现后）
-- `test_get_contract_returns_without_greeks_when_include_greeks_false`（实现后）
-- `test_get_contract_maps_not_found_to_options_contract_not_found`（实现后）
-- `test_get_contract_maps_upstream_unavailable`（实现后）
+- 保持现有成功/参数校验/上游错误映射测试持续通过
+- HOLD 解除后再扩展深度边界（cursor、not found、include_greeks=false 语义）
 
-## 5. TDD 执行顺序
+## 5. 当前缺口与后续顺序
 
-1. Phase A（立即可做）
-   - 先补齐第 3 节“每个方法至少 1 个测试方法”
-2. Phase B（market-data 强化）
-   - 按第 4.1~4.3 扩展，先 `list_snapshots`，再 `prefetch_default`
-3. Phase C（options 实现驱动）
-   - HOLD：先保持已有测试为绿，待 Stock 主线完成后再按第 4.4~4.6 逐步替换为真实行为测试
+1. 先补 `enforce_minute_retention` 的最小单测。
+2. 再补 `list_bars_with_meta` 在 feature flag 关闭时的空结果分支。
+3. HOLD 解除后补 options 扩展边界。
 
 ## 6. 完成标准
 
-- 上述 6 个公有方法均有对应单测方法并通过
-- market-data 方法覆盖成功路径 + 关键失败路径
-- options 方法当前仅保持已有测试不回归，扩展覆盖待 HOLD 解除后补齐
+- 上述 9 个公有方法均有最小单测覆盖并通过
+- market-data 覆盖成功路径 + 关键失败路径 + 聚合边界（含 DST、收盘截断、未完结桶）
+- options 当前阶段保持不回归；扩展覆盖待 HOLD 解除后补齐
 - 全程保持 No Interfaces（不引入 `Protocol/ABC`）
