@@ -188,6 +188,7 @@ export function TerminalMarketWatch() {
                   <span className={`sourceTag ${streamSource !== "WS" ? "sourceTagDelayed" : ""}`}>
                     Source: {activeSnapshot?.source ?? activeDetail?.source ?? streamSource}
                   </span>
+                  <span className="sourceTag">Bars: {activeDetail?.barsDataSource ?? "-"}</span>
                   <span className="pill">Market: {activeSnapshot?.market_status ?? "-"}</span>
                 </div>
 

@@ -2,7 +2,7 @@ import React from "react";
 
 import {
   buildIndicators,
-  listMarketBars,
+  listMarketBarsWithMeta,
   listMarketSnapshots,
   type MarketBar,
   type MarketSnapshot
@@ -19,7 +19,9 @@ import {
 } from "./types";
 
 export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
-  { key: "minute", label: "Minute" },
+  { key: "5m", label: "5m" },
+  { key: "15m", label: "15m" },
+  { key: "60m", label: "60m" },
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" }
@@ -228,13 +230,14 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           loading: true,
           error: null,
           updatedAt: previous[symbol]?.updatedAt ?? null,
-          source: previous[symbol]?.source ?? null
+          source: previous[symbol]?.source ?? null,
+          barsDataSource: previous[symbol]?.barsDataSource ?? null
         }
       }));
 
       try {
         const query = marketQueryForTimeframe(timeframe);
-        const bars = await listMarketBars({
+        const payload = await listMarketBarsWithMeta({
           token,
           ticker: symbol,
           timespan: query.timespan,
@@ -244,6 +247,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           limit: query.limit
         });
 
+        const bars = payload.items;
         const sortedBars = [...bars].sort(
           (left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime()
         );
@@ -257,7 +261,8 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
             loading: false,
             error: null,
             updatedAt: new Date().toISOString(),
-            source: "REST"
+            source: "REST",
+            barsDataSource: payload.dataSource
           }
         }));
       } catch (error: any) {
@@ -270,7 +275,8 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
             loading: false,
             error: error?.message ?? `Failed to load ${symbol}`,
             updatedAt: previous[symbol]?.updatedAt ?? null,
-            source: previous[symbol]?.source ?? null
+            source: previous[symbol]?.source ?? null,
+            barsDataSource: previous[symbol]?.barsDataSource ?? null
           }
         }));
       }
@@ -652,15 +658,19 @@ function dateOffset(days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function marketQueryForTimeframe(timeframe: TimeframeKey): {
+export function marketQueryForTimeframe(timeframe: TimeframeKey): {
   timespan: string;
   multiplier: number;
   fromDays: number;
   limit: number;
 } {
   switch (timeframe) {
-    case "minute":
-      return { timespan: "minute", multiplier: 1, fromDays: -3, limit: 4500 };
+    case "5m":
+      return { timespan: "minute", multiplier: 5, fromDays: -14, limit: 2500 };
+    case "15m":
+      return { timespan: "minute", multiplier: 15, fromDays: -14, limit: 1200 };
+    case "60m":
+      return { timespan: "minute", multiplier: 60, fromDays: -14, limit: 520 };
     case "week":
       return { timespan: "week", multiplier: 1, fromDays: -3650, limit: 700 };
     case "month":

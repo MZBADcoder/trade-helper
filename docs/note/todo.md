@@ -17,3 +17,4 @@
 - [ ] FE-MW-V2：定义 WS 降级态（reconnecting/degraded/recovering）的统一文案与颜色语义。
 - [ ] FE-MW-V2：与 BE 对齐 `system.status` 推送字段，避免前端自行推导连接原因。
 - [ ] FE-MW-V2：评估 options chain 大表渲染方案（分页 vs 虚拟滚动）并给出性能基线。
+- [x] FE-MW-V2：对齐 BE-0005 的 minute 粒度（`5m/15m/60m`），并在详情区展示 bars 的 `X-Data-Source`。

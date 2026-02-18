@@ -9,6 +9,7 @@
 - Related BE：
   - `docs/backend-evolution/BE-0001-prd-0001-market-watch-api-breakdown.md`
   - `docs/backend-evolution/BE-0002-prd-0001-market-watch-api-contract-v1.md`
+  - `docs/backend-evolution/BE-0005-prd-0001-market-data-hybrid-fetch-strategy.md`
 
 > 本文档在 `prototype-v1.md` 的基础上，只定义 PRD-0001（market-watch）新增/调整的前端设计，不覆盖 PRD-0002（IV 告警）。
 
@@ -63,7 +64,7 @@
    - ticker 列表、添加/删除
    - 行内展示 `Last / Change / %Change / UpdatedAt`
 2. **中部 Detail Workspace**
-   - 顶部 symbol header + 时间粒度切换
+   - 顶部 symbol header + 时间粒度切换（PMF 阶段 minute 收敛到 `5m/15m/60m`）
    - 主图（K 线 + 指标）
    - 当前价、日内高低、成交量、数据来源
 3. **右侧 Options Workspace（可折叠）**
@@ -91,6 +92,7 @@
 
 1. 若 ticker 未在当前订阅集中，发送 `subscribe`。
 2. 请求该 ticker 的 `bars`（minute/day 由当前时间粒度决定）。
+   - 对齐 BE-0005：minute 聚合粒度先收敛到 `multiplier in {5,15,60}`（必要时保留 `1m` 为回源/调试用，不作为默认 UI 选项）。
 3. 重置 detail 区临时状态，保留 watchlist 实时流。
 4. 当第一条该 ticker WS 增量到达后，更新 detail “最后更新时间”。
 

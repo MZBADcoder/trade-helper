@@ -1,4 +1,4 @@
-import { apiRequest } from "@/shared/api";
+import { apiRequest, apiRequestWithResponse } from "@/shared/api";
 
 import { type MarketBar, type MarketSnapshot, type MarketSnapshotsPayload } from "../model/types";
 
@@ -24,6 +24,28 @@ export async function listMarketBars(params: MarketQuery): Promise<MarketBar[]> 
       limit: params.limit
     }
   });
+}
+
+export async function listMarketBarsWithMeta(params: MarketQuery): Promise<{
+  items: MarketBar[];
+  dataSource: string | null;
+}> {
+  const { data, response } = await apiRequestWithResponse<MarketBar[]>("/market-data/bars", {
+    token: params.token,
+    query: {
+      ticker: params.ticker,
+      timespan: params.timespan,
+      multiplier: params.multiplier,
+      from: params.from,
+      to: params.to,
+      limit: params.limit
+    }
+  });
+
+  return {
+    items: data,
+    dataSource: response.headers.get("X-Data-Source")
+  };
 }
 
 export async function listMarketSnapshots(token: string, tickers: string[]): Promise<MarketSnapshot[]> {

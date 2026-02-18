@@ -1,7 +1,7 @@
 import { type IndicatorBundle, type MarketBar, type MarketSnapshot } from "@/entities/market";
 import { type WatchlistItem } from "@/entities/watchlist";
 
-export type TimeframeKey = "minute" | "day" | "week" | "month";
+export type TimeframeKey = "5m" | "15m" | "60m" | "day" | "week" | "month";
 export type StreamStatus =
   | "idle"
   | "connecting"
@@ -20,6 +20,7 @@ export type DetailSnapshot = {
   error: string | null;
   updatedAt: string | null;
   source: string | null;
+  barsDataSource: string | null;
 };
 
 export type ExpirationItem = {
