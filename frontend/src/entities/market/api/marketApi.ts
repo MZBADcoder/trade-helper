@@ -13,7 +13,7 @@ type MarketQuery = {
 };
 
 export async function listMarketBars(params: MarketQuery): Promise<MarketBar[]> {
-  return apiRequest<MarketBar[]>("/market-data/bars", {
+  const payload = await apiRequest<MarketBar[] | undefined>("/market-data/bars", {
     token: params.token,
     query: {
       ticker: params.ticker,
@@ -24,13 +24,14 @@ export async function listMarketBars(params: MarketQuery): Promise<MarketBar[]> 
       limit: params.limit
     }
   });
+  return payload ?? [];
 }
 
 export async function listMarketBarsWithMeta(params: MarketQuery): Promise<{
   items: MarketBar[];
   dataSource: string | null;
 }> {
-  const { data, response } = await apiRequestWithResponse<MarketBar[]>("/market-data/bars", {
+  const { data, response } = await apiRequestWithResponse<MarketBar[] | undefined>("/market-data/bars", {
     token: params.token,
     query: {
       ticker: params.ticker,
@@ -43,7 +44,7 @@ export async function listMarketBarsWithMeta(params: MarketQuery): Promise<{
   });
 
   return {
-    items: data,
+    items: data ?? [],
     dataSource: response.headers.get("X-Data-Source")
   };
 }

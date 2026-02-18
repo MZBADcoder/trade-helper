@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listMarketBarsWithMeta } from "./marketApi";
+import { listMarketBars, listMarketBarsWithMeta } from "./marketApi";
 
 describe("listMarketBarsWithMeta", () => {
   afterEach(() => {
@@ -74,5 +74,42 @@ describe("listMarketBarsWithMeta", () => {
 
     expect(payload.items).toEqual([]);
     expect(payload.dataSource).toBeNull();
+  });
+
+  it("returns empty array when endpoint responds 204", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, {
+        status: 204
+      })
+    );
+
+    const payload = await listMarketBarsWithMeta({
+      token: "token-3",
+      ticker: "MSFT"
+    });
+
+    expect(payload.items).toEqual([]);
+    expect(payload.dataSource).toBeNull();
+  });
+});
+
+describe("listMarketBars", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns empty array when endpoint responds 204", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, {
+        status: 204
+      })
+    );
+
+    const payload = await listMarketBars({
+      token: "token-4",
+      ticker: "TSLA"
+    });
+
+    expect(payload).toEqual([]);
   });
 });
