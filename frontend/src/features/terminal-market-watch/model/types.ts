@@ -1,5 +1,4 @@
 import { type IndicatorBundle, type MarketBar, type MarketSnapshot } from "@/entities/market";
-import { type OptionChainItem, type OptionContract } from "@/entities/options";
 import { type WatchlistItem } from "@/entities/watchlist";
 
 export type TimeframeKey = "minute" | "day" | "week" | "month";
@@ -12,7 +11,6 @@ export type StreamStatus =
   | "disconnected";
 export type StreamSource = "WS" | "REST";
 export type DataLatency = "real-time" | "delayed";
-export type OptionTypeFilter = "all" | "call" | "put";
 
 export type DetailSnapshot = {
   bars: MarketBar[];
@@ -62,25 +60,4 @@ export type TerminalMarketWatchViewModel = {
   dataLatency: DataLatency;
   lastSyncAt: string | null;
   lastError: string | null;
-
-  expirations: ExpirationItem[];
-  expirationsBusy: boolean;
-  expirationsError: string | null;
-  selectedExpiration: string | null;
-  setSelectedExpiration: (value: string | null) => void;
-
-  optionTypeFilter: OptionTypeFilter;
-  setOptionTypeFilter: (value: OptionTypeFilter) => void;
-  optionChain: OptionChainItem[];
-  chainBusy: boolean;
-  chainError: string | null;
-
-  selectedContractTicker: string | null;
-  setSelectedContractTicker: (value: string | null) => void;
-  contractDetail: OptionContract | null;
-  contractBusy: boolean;
-  contractError: string | null;
-
-  loadExpirations: (underlying: string) => Promise<void>;
-  loadOptionChainData: (underlying: string, expiration: string) => Promise<void>;
 };

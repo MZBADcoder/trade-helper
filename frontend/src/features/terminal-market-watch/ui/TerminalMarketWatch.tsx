@@ -16,7 +16,6 @@ import {
   toVolume
 } from "../lib/presentation";
 import { TIMEFRAME_OPTIONS, useTerminalMarketWatch } from "../model/useTerminalMarketWatch";
-import { type OptionTypeFilter } from "../model/types";
 
 export function TerminalMarketWatch() {
   const {
@@ -46,28 +45,7 @@ export function TerminalMarketWatch() {
     streamSource,
     dataLatency,
     lastSyncAt,
-    lastError,
-
-    expirations,
-    expirationsBusy,
-    expirationsError,
-    selectedExpiration,
-    setSelectedExpiration,
-
-    optionTypeFilter,
-    setOptionTypeFilter,
-    optionChain,
-    chainBusy,
-    chainError,
-
-    selectedContractTicker,
-    setSelectedContractTicker,
-    contractDetail,
-    contractBusy,
-    contractError,
-
-    loadExpirations,
-    loadOptionChainData
+    lastError
   } = useTerminalMarketWatch();
 
   const streamLabel = streamStatusLabel(streamStatus);
@@ -253,165 +231,6 @@ export function TerminalMarketWatch() {
           </div>
         </section>
 
-        <aside className="panel optionsPanel">
-          <div className="panelHeader">
-            <div className="panelTitle">OPTIONS WORKSPACE</div>
-            <div className="panelMeta">{activeTicker ?? "Select ticker"}</div>
-          </div>
-
-          <div className="panelBody optionsBody">
-            {!activeTicker ? (
-              <div className="muted">先在 watchlist 选择股票，再查看对应期权链。</div>
-            ) : (
-              <>
-                <div className="optionsControlRow">
-                  <label className="fieldLabel" htmlFor="expiration-select">
-                    Expiration
-                  </label>
-                  <select
-                    id="expiration-select"
-                    className="input selectInput"
-                    value={selectedExpiration ?? ""}
-                    onChange={(event) => setSelectedExpiration(event.target.value || null)}
-                    disabled={expirationsBusy || !expirations.length}
-                  >
-                    {!expirations.length ? <option value="">No data</option> : null}
-                    {expirations.map((item) => (
-                      <option key={item.date} value={item.date}>
-                        {item.date} ({item.days_to_expiration}D)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="optionsControlRow">
-                  <label className="fieldLabel" htmlFor="option-type-select">
-                    Option Type
-                  </label>
-                  <select
-                    id="option-type-select"
-                    className="input selectInput"
-                    value={optionTypeFilter}
-                    onChange={(event) => setOptionTypeFilter(event.target.value as OptionTypeFilter)}
-                  >
-                    <option value="all">All</option>
-                    <option value="call">Call</option>
-                    <option value="put">Put</option>
-                  </select>
-                </div>
-
-                <div className="row">
-                  <button
-                    className="btn btnSecondary"
-                    type="button"
-                    onClick={() => activeTicker && void loadExpirations(activeTicker)}
-                  >
-                    Reload Expirations
-                  </button>
-                  <button
-                    className="btn btnSecondary"
-                    type="button"
-                    onClick={() => activeTicker && selectedExpiration && void loadOptionChainData(activeTicker, selectedExpiration)}
-                    disabled={!selectedExpiration}
-                  >
-                    Reload Chain
-                  </button>
-                </div>
-
-                {expirationsBusy ? <div className="muted">Loading expirations...</div> : null}
-                {chainBusy ? <div className="muted">Loading option chain...</div> : null}
-                {expirationsError ? <div className="errorText">{expirationsError}</div> : null}
-                {chainError ? <div className="errorText">{chainError}</div> : null}
-
-                <div className="tableWrap optionsTableWrap">
-                  <table className="table optionsChainTable">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Strike</th>
-                        <th>Bid</th>
-                        <th>Ask</th>
-                        <th>Last</th>
-                        <th>IV</th>
-                        <th>Vol</th>
-                        <th>OI</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!optionChain.length ? (
-                        <tr>
-                          <td colSpan={8} className="muted">
-                            选择到期日后加载期权链（最多渲染 200 行）。
-                          </td>
-                        </tr>
-                      ) : (
-                        optionChain.map((item) => {
-                          const selected = item.option_ticker === selectedContractTicker;
-                          return (
-                            <tr key={item.option_ticker} className={selected ? "optionsRowActive" : ""}>
-                              <td>
-                                <button
-                                  className="chainTickerBtn"
-                                  type="button"
-                                  onClick={() => setSelectedContractTicker(item.option_ticker)}
-                                >
-                                  {item.option_type.toUpperCase()}
-                                </button>
-                              </td>
-                              <td>{toPrice(item.strike)}</td>
-                              <td>{renderMaybeNumber(item.bid, toPrice)}</td>
-                              <td>{renderMaybeNumber(item.ask, toPrice)}</td>
-                              <td>{renderMaybeNumber(item.last, toPrice)}</td>
-                              <td>{renderMaybeNumber(item.iv, (value) => `${(value * 100).toFixed(1)}%`)}</td>
-                              <td>{renderMaybeNumber(item.volume, (value) => toVolume(value))}</td>
-                              <td>{renderMaybeNumber(item.open_interest, (value) => toVolume(value))}</td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {selectedContractTicker ? (
-                  <div className="optionContractCard">
-                    <div className="optionContractHeader">
-                      <span className="panelTitle">CONTRACT DETAIL</span>
-                      <span className="panelMeta">{selectedContractTicker}</span>
-                    </div>
-
-                    {contractBusy ? <div className="muted">Loading contract detail...</div> : null}
-                    {contractError ? <div className="errorText">{contractError}</div> : null}
-
-                    {contractDetail ? (
-                      <div className="optionMetricGrid">
-                        <MetricCard label="Bid" value={toPrice(contractDetail.quote.bid)} />
-                        <MetricCard label="Ask" value={toPrice(contractDetail.quote.ask)} />
-                        <MetricCard label="Last" value={toPrice(contractDetail.quote.last)} />
-                        <MetricCard label="Strike" value={toPrice(contractDetail.strike)} />
-                        <MetricCard label="Volume" value={toVolume(contractDetail.session.volume)} />
-                        <MetricCard label="OI" value={toVolume(contractDetail.session.open_interest)} />
-                        <MetricCard label="Delta" value={toSigned(contractDetail.greeks?.delta)} />
-                        <MetricCard label="Gamma" value={toSigned(contractDetail.greeks?.gamma)} />
-                        <MetricCard label="Theta" value={toSigned(contractDetail.greeks?.theta)} />
-                        <MetricCard label="Vega" value={toSigned(contractDetail.greeks?.vega)} />
-                        <MetricCard
-                          label="IV"
-                          value={
-                            contractDetail.greeks?.iv === null || contractDetail.greeks?.iv === undefined
-                              ? "-"
-                              : `${(contractDetail.greeks.iv * 100).toFixed(1)}%`
-                          }
-                        />
-                        <MetricCard label="Source" value={contractDetail.source} />
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        </aside>
       </div>
 
       <section className="panel statusBarPanel">
@@ -436,18 +255,4 @@ function MetricCard({ label, value, tone }: { label: string; value: string; tone
       <div className="metricValue">{value}</div>
     </article>
   );
-}
-
-function renderMaybeNumber(
-  value: number | null | undefined,
-  formatter: (value: number) => string
-): React.ReactNode {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return (
-      <span className="fieldFallback" title="上游字段不可用">
-        -
-      </span>
-    );
-  }
-  return formatter(value);
 }

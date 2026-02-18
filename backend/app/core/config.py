@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     )
     market_data_daily_lookback_days: int = 730
     market_data_intraday_lookback_days: int = 5
+    options_data_enabled: bool = False
 
     postgres_db: str = "trader_helper"
     postgres_user: str = "trader_helper"

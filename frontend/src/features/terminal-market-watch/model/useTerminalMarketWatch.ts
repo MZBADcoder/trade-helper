@@ -7,19 +7,11 @@ import {
   type MarketBar,
   type MarketSnapshot
 } from "@/entities/market";
-import {
-  getOptionContract,
-  listOptionChain,
-  listOptionExpirations,
-  type OptionChainItem,
-  type OptionContract
-} from "@/entities/options";
 import { useSession } from "@/entities/session";
 import { addWatchlist, deleteWatchlist, listWatchlist, type WatchlistItem } from "@/entities/watchlist";
 
 import {
   type DetailSnapshot,
-  type OptionTypeFilter,
   type StreamStatus,
   type TimeframeKey,
   type TimeframeOption,
@@ -61,23 +53,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const [lastSyncAt, setLastSyncAt] = React.useState<string | null>(null);
   const [lastError, setLastError] = React.useState<string | null>(null);
 
-  const [expirations, setExpirations] = React.useState<Array<{ date: string; days_to_expiration: number }>>([]);
-  const [expirationsBusy, setExpirationsBusy] = React.useState(false);
-  const [expirationsError, setExpirationsError] = React.useState<string | null>(null);
-  const [selectedExpiration, setSelectedExpiration] = React.useState<string | null>(null);
-
-  const [optionTypeFilter, setOptionTypeFilter] = React.useState<OptionTypeFilter>("all");
-  const [optionChain, setOptionChain] = React.useState<OptionChainItem[]>([]);
-  const [chainBusy, setChainBusy] = React.useState(false);
-  const [chainError, setChainError] = React.useState<string | null>(null);
-
-  const [selectedContractTicker, setSelectedContractTicker] = React.useState<string | null>(null);
-  const [contractDetail, setContractDetail] = React.useState<OptionContract | null>(null);
-  const [contractBusy, setContractBusy] = React.useState(false);
-  const [contractError, setContractError] = React.useState<string | null>(null);
-
   const activeTickerRef = React.useRef<string | null>(null);
-  const selectedContractTickerRef = React.useRef<string | null>(null);
   const tokenRef = React.useRef<string | null>(null);
   const desiredSubscriptionsRef = React.useRef<string[]>([]);
 
@@ -100,10 +76,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   React.useEffect(() => {
     activeTickerRef.current = activeTicker;
   }, [activeTicker]);
-
-  React.useEffect(() => {
-    selectedContractTickerRef.current = selectedContractTicker;
-  }, [selectedContractTicker]);
 
   React.useEffect(() => {
     tokenRef.current = token;
@@ -410,11 +382,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         const code = asString(messageData.code);
         const message = asString(messageData.message) ?? "stream error";
         setLastError(code ? `${code}: ${message}` : message);
-
-        if (code === "STREAM_SUBSCRIPTION_LIMIT_EXCEEDED") {
-          setContractError("已达 WS 订阅上限，当前合约仅展示 REST 数据。");
-        }
-
         return;
       }
 
@@ -427,23 +394,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
       const eventAt = asString(messageData.event_ts) ?? asString(payload.ts) ?? new Date().toISOString();
       applyStreamSnapshot(symbol, messageData, eventAt);
-
-      if (symbol === selectedContractTickerRef.current) {
-        setContractDetail((previous) => {
-          if (!previous) return previous;
-          return {
-            ...previous,
-            quote: {
-              ...previous.quote,
-              bid: asNumber(messageData.bid) ?? previous.quote.bid,
-              ask: asNumber(messageData.ask) ?? previous.quote.ask,
-              last: asNumber(messageData.last) ?? previous.quote.last,
-              updated_at: eventAt
-            },
-            source: "WS"
-          };
-        });
-      }
     },
     [applyStreamSnapshot]
   );
@@ -559,85 +509,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     subscriptionSetRef.current = new Set();
   }, [stopDegradedPolling]);
 
-  const loadExpirations = React.useCallback(
-    async (underlying: string) => {
-      if (!token) return;
-
-      setExpirationsBusy(true);
-      setExpirationsError(null);
-
-      try {
-        const payload = await listOptionExpirations(token, underlying);
-        const records = payload.expirations.map((item) => ({
-          date: item.date,
-          days_to_expiration: item.days_to_expiration
-        }));
-
-        setExpirations(records);
-        setSelectedExpiration((previous) => {
-          if (previous && records.some((item) => item.date === previous)) {
-            return previous;
-          }
-          return records[0]?.date ?? null;
-        });
-      } catch (error: any) {
-        setExpirations([]);
-        setSelectedExpiration(null);
-        setExpirationsError(error?.message ?? "Failed to load expirations.");
-      } finally {
-        setExpirationsBusy(false);
-      }
-    },
-    [token]
-  );
-
-  const loadOptionChainData = React.useCallback(
-    async (underlying: string, expiration: string) => {
-      if (!token) return;
-
-      setChainBusy(true);
-      setChainError(null);
-
-      try {
-        const payload = await listOptionChain({
-          token,
-          underlying,
-          expiration,
-          option_type: optionTypeFilter,
-          limit: 200
-        });
-
-        setOptionChain(payload.items);
-      } catch (error: any) {
-        setOptionChain([]);
-        setChainError(error?.message ?? "Failed to load option chain.");
-      } finally {
-        setChainBusy(false);
-      }
-    },
-    [optionTypeFilter, token]
-  );
-
-  const loadContractDetail = React.useCallback(
-    async (optionTicker: string) => {
-      if (!token) return;
-
-      setContractBusy(true);
-      setContractError(null);
-
-      try {
-        const contract = await getOptionContract(token, optionTicker);
-        setContractDetail(contract);
-      } catch (error: any) {
-        setContractDetail(null);
-        setContractError(error?.message ?? `Failed to load ${optionTicker}`);
-      } finally {
-        setContractBusy(false);
-      }
-    },
-    [token]
-  );
-
   const desiredSubscriptions = React.useMemo(() => {
     const set = new Set<string>();
 
@@ -645,13 +516,8 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       const symbol = normalizeSymbol(item.ticker);
       if (symbol) set.add(symbol);
     });
-
-    if (selectedContractTicker) {
-      set.add(normalizeSymbol(selectedContractTicker));
-    }
-
     return [...set];
-  }, [selectedContractTicker, watchlist]);
+  }, [watchlist]);
 
   React.useEffect(() => {
     desiredSubscriptionsRef.current = desiredSubscriptions;
@@ -690,35 +556,11 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   React.useEffect(() => {
     if (!activeTicker) {
-      setOptionChain([]);
-      setExpirations([]);
-      setSelectedExpiration(null);
-      setContractDetail(null);
-      setSelectedContractTicker(null);
       return;
     }
 
     void loadTickerDetail(activeTicker, true);
-    void loadExpirations(activeTicker);
-  }, [activeTicker, loadExpirations, loadTickerDetail]);
-
-  React.useEffect(() => {
-    if (!activeTicker || !selectedExpiration) {
-      setOptionChain([]);
-      return;
-    }
-
-    void loadOptionChainData(activeTicker, selectedExpiration);
-  }, [activeTicker, loadOptionChainData, selectedExpiration]);
-
-  React.useEffect(() => {
-    if (!selectedContractTicker) {
-      setContractDetail(null);
-      return;
-    }
-
-    void loadContractDetail(selectedContractTicker);
-  }, [loadContractDetail, selectedContractTicker]);
+  }, [activeTicker, loadTickerDetail]);
 
   const activeDetail = activeTicker ? detailsByTicker[activeTicker] : null;
   const activeSnapshot = activeTicker ? snapshotMap[activeTicker] : null;
@@ -756,9 +598,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
       try {
         await deleteWatchlist(token, symbol);
-        setSelectedContractTicker((current) =>
-          optionTickerBelongsToUnderlying(current, symbol) ? null : current
-        );
         await refreshWatchlist();
       } catch (error: any) {
         setWatchlistError(error?.message ?? "Failed to delete ticker.");
@@ -803,28 +642,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     streamSource,
     dataLatency,
     lastSyncAt,
-    lastError,
-
-    expirations,
-    expirationsBusy,
-    expirationsError,
-    selectedExpiration,
-    setSelectedExpiration,
-
-    optionTypeFilter,
-    setOptionTypeFilter,
-    optionChain,
-    chainBusy,
-    chainError,
-
-    selectedContractTicker,
-    setSelectedContractTicker,
-    contractDetail,
-    contractBusy,
-    contractError,
-
-    loadExpirations,
-    loadOptionChainData
+    lastError
   };
 }
 
@@ -855,13 +673,6 @@ function marketQueryForTimeframe(timeframe: TimeframeKey): {
 
 function normalizeSymbol(value: string | null | undefined): string {
   return (value ?? "").trim().toUpperCase();
-}
-
-function optionTickerBelongsToUnderlying(optionTicker: string | null, underlying: string): boolean {
-  if (!optionTicker) return false;
-  const normalizedTicker = normalizeSymbol(optionTicker);
-  const normalizedUnderlying = normalizeSymbol(underlying);
-  return normalizedTicker.startsWith(`O:${normalizedUnderlying}`);
 }
 
 function chunkSymbols(symbols: string[], size: number): string[][] {

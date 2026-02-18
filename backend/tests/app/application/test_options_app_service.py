@@ -119,6 +119,14 @@ def test_list_expirations_raises_options_upstream_unavailable_without_client() -
         service.list_expirations(underlying="AAPL")
 
 
+def test_list_expirations_raises_options_upstream_unavailable_when_disabled() -> None:
+    client = FakeMassiveOptionsClient()
+    service = DefaultOptionsApplicationService(massive_client=client, enabled=False)
+
+    with pytest.raises(ValueError, match="OPTIONS_UPSTREAM_UNAVAILABLE"):
+        service.list_expirations(underlying="AAPL")
+
+
 def test_list_expirations_returns_grouped_result() -> None:
     client = FakeMassiveOptionsClient()
     service = DefaultOptionsApplicationService(massive_client=client)

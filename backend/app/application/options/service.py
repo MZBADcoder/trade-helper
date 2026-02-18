@@ -15,8 +15,14 @@ _EXPIRATION_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class DefaultOptionsApplicationService:
-    def __init__(self, *, massive_client: MassiveClient | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        massive_client: MassiveClient | None = None,
+        enabled: bool = True,
+    ) -> None:
         self._massive_client = massive_client
+        self._enabled = enabled
 
     def list_expirations(
         self,
@@ -25,11 +31,10 @@ class DefaultOptionsApplicationService:
         limit: int = 12,
         include_expired: bool = False,
     ) -> OptionExpirationsResult:
+        self._ensure_available()
         normalized = _normalize_underlying(underlying)
         if limit < 1 or limit > 36:
             raise ValueError("OPTIONS_INVALID_LIMIT")
-        if self._massive_client is None:
-            raise ValueError("OPTIONS_UPSTREAM_UNAVAILABLE")
 
         try:
             contracts = self._massive_client.list_options_expirations(
@@ -62,6 +67,7 @@ class DefaultOptionsApplicationService:
         limit: int = 200,
         cursor: str | None = None,
     ) -> OptionChainResult:
+        self._ensure_available()
         normalized_underlying = _normalize_underlying(underlying)
         _parse_expiration(expiration)
         if strike_from is not None and strike_to is not None and strike_from > strike_to:
@@ -72,8 +78,6 @@ class DefaultOptionsApplicationService:
             raise ValueError("OPTIONS_INVALID_OPTION_TYPE")
         if limit < 1 or limit > 500:
             raise ValueError("OPTIONS_INVALID_LIMIT")
-        if self._massive_client is None:
-            raise ValueError("OPTIONS_UPSTREAM_UNAVAILABLE")
 
         try:
             payload = self._massive_client.list_options_chain(
@@ -107,11 +111,10 @@ class DefaultOptionsApplicationService:
         option_ticker: str,
         include_greeks: bool = True,
     ) -> OptionContract:
+        self._ensure_available()
         normalized_ticker = option_ticker.strip().upper()
         if not normalized_ticker.startswith("O:"):
             raise ValueError("OPTIONS_INVALID_TICKER")
-        if self._massive_client is None:
-            raise ValueError("OPTIONS_UPSTREAM_UNAVAILABLE")
 
         try:
             payload = self._massive_client.get_options_contract(
@@ -129,6 +132,10 @@ class DefaultOptionsApplicationService:
         if contract is None:
             raise ValueError("OPTIONS_CONTRACT_NOT_FOUND")
         return contract
+
+    def _ensure_available(self) -> None:
+        if not self._enabled or self._massive_client is None:
+            raise ValueError("OPTIONS_UPSTREAM_UNAVAILABLE")
 
 
 def _normalize_underlying(underlying: str) -> str:

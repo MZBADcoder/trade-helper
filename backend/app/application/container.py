@@ -40,6 +40,7 @@ def build_watchlist_service() -> DefaultWatchlistApplicationService:
 def build_options_service() -> DefaultOptionsApplicationService:
     return DefaultOptionsApplicationService(
         massive_client=_massive_client(),
+        enabled=settings.options_data_enabled,
     )
 
 
