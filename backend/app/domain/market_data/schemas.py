@@ -18,6 +18,8 @@ class MarketBar:
     vwap: float | None = None
     trades: int | None = None
     source: str = "massive"
+    end_at: datetime | None = None
+    is_final: bool | None = None
 
 
 @dataclass(slots=True)

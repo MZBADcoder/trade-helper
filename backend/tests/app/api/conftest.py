@@ -31,6 +31,13 @@ class FakeSnapshot:
 
 
 @dataclass(slots=True)
+class FakeBarsResult:
+    bars: list[MarketBar]
+    data_source: str
+    partial_range: bool
+
+
+@dataclass(slots=True)
 class FakeOptionExpiration:
     date: str
     days_to_expiration: int
@@ -112,6 +119,8 @@ class FakeMarketDataService:
     def __init__(self) -> None:
         self.list_bars_calls: list[dict] = []
         self.list_snapshots_calls: list[list[str]] = []
+        self.bars_data_source = "DB_AGG_MIXED"
+        self.bars_partial_range = False
 
     def list_snapshots(self, *, tickers: list[str]) -> list[FakeSnapshot]:
         self.list_snapshots_calls.append(tickers)
@@ -168,6 +177,30 @@ class FakeMarketDataService:
                 source="REST",
             )
         ]
+
+    def list_bars_with_meta(
+        self,
+        *,
+        ticker: str,
+        timespan: str,
+        multiplier: int = 1,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int | None = None,
+    ) -> FakeBarsResult:
+        bars = self.list_bars(
+            ticker=ticker,
+            timespan=timespan,
+            multiplier=multiplier,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        return FakeBarsResult(
+            bars=bars,
+            data_source=self.bars_data_source,
+            partial_range=self.bars_partial_range,
+        )
 
 
 class FakeOptionsService:
