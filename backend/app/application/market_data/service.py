@@ -6,6 +6,9 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from app.core.config import settings
 from app.domain.market_data.aggregation import (
+    MARKET_CLOSE_TIME,
+    MARKET_OPEN_TIME,
+    MARKET_TIMEZONE,
     aggregate_bucket,
     aggregate_minute_bars,
     market_trade_date,
@@ -192,13 +195,31 @@ class MarketDataApplicationService:
         if keep_trade_days < 1:
             raise ValueError("keep_trade_days must be >= 1")
 
-        now = now or datetime.now(tz=timezone.utc)
-        keep_from_trade_date = market_trade_date(point=now) - timedelta(days=keep_trade_days - 1)
+        _ = now
 
         with self._uow as uow:
             repo = _require_market_data_repo(uow)
-            deleted_minute = repo.delete_minute_bars_before_trade_date(keep_from_trade_date=keep_from_trade_date)
-            deleted_agg = repo.delete_minute_agg_before_trade_date(keep_from_trade_date=keep_from_trade_date)
+            minute_cutoff_trade_date = _resolve_keep_from_trade_date(
+                trade_dates=repo.list_recent_minute_trade_dates(limit=keep_trade_days),
+                keep_trade_days=keep_trade_days,
+            )
+            agg_cutoff_trade_date = _resolve_keep_from_trade_date(
+                trade_dates=repo.list_recent_minute_agg_trade_dates(limit=keep_trade_days),
+                keep_trade_days=keep_trade_days,
+            )
+
+            deleted_minute = 0
+            if minute_cutoff_trade_date is not None:
+                deleted_minute = repo.delete_minute_bars_before_trade_date(
+                    keep_from_trade_date=minute_cutoff_trade_date
+                )
+
+            deleted_agg = 0
+            if agg_cutoff_trade_date is not None:
+                deleted_agg = repo.delete_minute_agg_before_trade_date(
+                    keep_from_trade_date=agg_cutoff_trade_date
+                )
+
             if deleted_minute > 0 or deleted_agg > 0:
                 uow.commit()
             return {
@@ -448,8 +469,14 @@ def _build_bars_query(
     if end_date < start_date:
         raise ValueError("End date must be on or after start date")
 
-    start_at = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
-    end_at = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+    if normalized_timespan == "minute":
+        start_at, end_at = _minute_query_bounds_utc(
+            start_date=start_date,
+            end_date=end_date,
+        )
+    else:
+        start_at = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+        end_at = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
     return _BarsQuery(
         ticker=normalized_ticker,
         timespan=normalized_timespan,
@@ -510,6 +537,22 @@ def _apply_limit(bars: list[MarketBar], *, limit: int | None) -> list[MarketBar]
     if not limit or limit < 1:
         return bars
     return bars[:limit]
+
+
+def _minute_query_bounds_utc(*, start_date: date, end_date: date) -> tuple[datetime, datetime]:
+    market_start = datetime.combine(start_date, MARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
+    market_close = datetime.combine(end_date, MARKET_CLOSE_TIME, tzinfo=MARKET_TIMEZONE)
+    market_last_bar_start = market_close - timedelta(minutes=1)
+    return market_start.astimezone(timezone.utc), market_last_bar_start.astimezone(timezone.utc)
+
+
+def _resolve_keep_from_trade_date(*, trade_dates: list[date], keep_trade_days: int) -> date | None:
+    if keep_trade_days < 1 or len(trade_dates) < keep_trade_days:
+        return None
+    ordered = sorted(set(trade_dates), reverse=True)
+    if len(ordered) < keep_trade_days:
+        return None
+    return ordered[keep_trade_days - 1]
 
 
 def _normalize_tickers(*, tickers: list[str]) -> list[str]:

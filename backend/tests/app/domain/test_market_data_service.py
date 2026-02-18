@@ -47,6 +47,8 @@ class FakeMarketDataRepository:
         self.day_bars: list[MarketBar] = []
         self.minute_bars: list[MarketBar] = []
         self.minute_agg_bars: list[MarketBar] = []
+        self.minute_trade_dates: list[date] = []
+        self.minute_agg_trade_dates: list[date] = []
 
         self.day_coverage: tuple[datetime, datetime] | None = None
         self.minute_coverage: tuple[datetime, datetime] | None = None
@@ -54,6 +56,11 @@ class FakeMarketDataRepository:
         self.upserted_day: list[MarketBar] = []
         self.upserted_minute: list[MarketBar] = []
         self.upserted_minute_agg: list[MarketBar] = []
+
+        self.minute_delete_return = 0
+        self.minute_agg_delete_return = 0
+        self.deleted_minute_cutoff: date | None = None
+        self.deleted_minute_agg_cutoff: date | None = None
 
     def list_day_bars(
         self,
@@ -143,13 +150,27 @@ class FakeMarketDataRepository:
         symbols = sorted({bar.ticker for bar in self.minute_bars})
         return symbols
 
+    def list_recent_minute_trade_dates(self, *, limit: int) -> list[date]:
+        if self.minute_trade_dates:
+            ordered = sorted(set(self.minute_trade_dates), reverse=True)
+            return ordered[:limit]
+        ordered = sorted({bar.start_at.date() for bar in self.minute_bars}, reverse=True)
+        return ordered[:limit]
+
+    def list_recent_minute_agg_trade_dates(self, *, limit: int) -> list[date]:
+        if self.minute_agg_trade_dates:
+            ordered = sorted(set(self.minute_agg_trade_dates), reverse=True)
+            return ordered[:limit]
+        ordered = sorted({bar.start_at.date() for bar in self.minute_agg_bars}, reverse=True)
+        return ordered[:limit]
+
     def delete_minute_bars_before_trade_date(self, *, keep_from_trade_date: date) -> int:
-        _ = keep_from_trade_date
-        return 0
+        self.deleted_minute_cutoff = keep_from_trade_date
+        return self.minute_delete_return
 
     def delete_minute_agg_before_trade_date(self, *, keep_from_trade_date: date) -> int:
-        _ = keep_from_trade_date
-        return 0
+        self.deleted_minute_agg_cutoff = keep_from_trade_date
+        return self.minute_agg_delete_return
 
 
 class FakeUoW:
@@ -246,16 +267,16 @@ def test_list_minute_baseline_fetches_massive_when_missing() -> None:
     repo = FakeMarketDataRepository()
     massive = FakeMassiveClient(
         {
-            (
-                "minute",
-                1,
-            ): [
-                {
-                    "t": 1704188400000,  # 2024-01-02T09:00:00Z
-                    "o": 10,
-                    "h": 12,
-                    "l": 9,
-                    "c": 11,
+                (
+                    "minute",
+                    1,
+                ): [
+                    {
+                        "t": 1704205800000,  # 2024-01-02T14:30:00Z (09:30 ET)
+                        "o": 10,
+                        "h": 12,
+                        "l": 9,
+                        "c": 11,
                     "v": 1000,
                 }
             ]
@@ -293,8 +314,8 @@ def test_list_minute_aggregated_returns_db_agg_mixed_for_open_bucket(monkeypatch
 
     repo = FakeMarketDataRepository()
     repo.minute_coverage = (
-        datetime(2026, 2, 10, 0, 0, tzinfo=timezone.utc),
-        datetime(2026, 2, 10, 23, 59, 59, 999999, tzinfo=timezone.utc),
+        datetime(2026, 2, 10, 14, 30, tzinfo=timezone.utc),
+        datetime(2026, 2, 10, 20, 59, tzinfo=timezone.utc),
     )
     repo.minute_agg_bars = [
         _bar(
@@ -404,6 +425,49 @@ def test_precompute_minute_aggregates_only_writes_final_buckets() -> None:
     assert len(repo.upserted_minute_agg) == 1
     assert repo.upserted_minute_agg[0].start_at == datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc)
     assert repo.upserted_minute_agg[0].end_at == datetime(2026, 2, 10, 15, 5, tzinfo=timezone.utc)
+
+
+def test_enforce_minute_retention_uses_trade_day_cutoff() -> None:
+    repo = FakeMarketDataRepository()
+    repo.minute_trade_dates = [
+        date(2026, 2, 17),
+        date(2026, 2, 16),
+        date(2026, 2, 13),
+        date(2026, 2, 12),
+    ]
+    repo.minute_agg_trade_dates = list(repo.minute_trade_dates)
+    repo.minute_delete_return = 12
+    repo.minute_agg_delete_return = 6
+    uow = FakeUoW(market_data_repo=repo)
+    service = MarketDataApplicationService(
+        uow=uow,
+        massive_client=FailMassiveClient(),
+    )
+
+    result = service.enforce_minute_retention(keep_trade_days=3)
+
+    assert result == {"minute_deleted": 12, "minute_agg_deleted": 6}
+    assert repo.deleted_minute_cutoff == date(2026, 2, 13)
+    assert repo.deleted_minute_agg_cutoff == date(2026, 2, 13)
+    assert uow.commits == 1
+
+
+def test_enforce_minute_retention_skips_delete_when_trade_days_insufficient() -> None:
+    repo = FakeMarketDataRepository()
+    repo.minute_trade_dates = [date(2026, 2, 17), date(2026, 2, 16)]
+    repo.minute_agg_trade_dates = [date(2026, 2, 17), date(2026, 2, 16)]
+    uow = FakeUoW(market_data_repo=repo)
+    service = MarketDataApplicationService(
+        uow=uow,
+        massive_client=FailMassiveClient(),
+    )
+
+    result = service.enforce_minute_retention(keep_trade_days=3)
+
+    assert result == {"minute_deleted": 0, "minute_agg_deleted": 0}
+    assert repo.deleted_minute_cutoff is None
+    assert repo.deleted_minute_agg_cutoff is None
+    assert uow.commits == 0
 
 
 def _filter_by_range(

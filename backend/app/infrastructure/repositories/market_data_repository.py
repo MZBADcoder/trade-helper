@@ -183,6 +183,30 @@ class SqlAlchemyMarketDataRepository:
         rows = self._session.execute(stmt).all()
         return [row[0] for row in rows if row and row[0]]
 
+    def list_recent_minute_trade_dates(self, *, limit: int) -> list[date]:
+        if limit < 1:
+            return []
+        stmt = (
+            select(MarketBarMinuteModel.trade_date)
+            .distinct()
+            .order_by(MarketBarMinuteModel.trade_date.desc())
+            .limit(limit)
+        )
+        rows = self._session.execute(stmt).all()
+        return [row[0] for row in rows if row and row[0] is not None]
+
+    def list_recent_minute_agg_trade_dates(self, *, limit: int) -> list[date]:
+        if limit < 1:
+            return []
+        stmt = (
+            select(MarketBarMinuteAggModel.trade_date)
+            .distinct()
+            .order_by(MarketBarMinuteAggModel.trade_date.desc())
+            .limit(limit)
+        )
+        rows = self._session.execute(stmt).all()
+        return [row[0] for row in rows if row and row[0] is not None]
+
     def upsert_day_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
             return
