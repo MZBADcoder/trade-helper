@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.application.market_data.service import DefaultMarketDataApplicationService
+from app.application.market_data.service import MarketDataApplicationService
 from app.domain.market_data.schemas import MarketSnapshot
 
 
@@ -83,7 +83,7 @@ class SnapshotObject:
 
 
 def test_list_snapshots_raises_upstream_unavailable_when_client_missing() -> None:
-    service = DefaultMarketDataApplicationService(uow=FakeUoW(), massive_client=None)
+    service = MarketDataApplicationService(uow=FakeUoW(), massive_client=None)
 
     with pytest.raises(ValueError, match="MARKET_DATA_UPSTREAM_UNAVAILABLE"):
         service.list_snapshots(tickers=["AAPL"])
@@ -91,7 +91,7 @@ def test_list_snapshots_raises_upstream_unavailable_when_client_missing() -> Non
 
 def test_list_snapshots_returns_mapped_domain_snapshots() -> None:
     client = FakeMassiveSnapshotClient()
-    service = DefaultMarketDataApplicationService(uow=FakeUoW(), massive_client=client)
+    service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
     result = service.list_snapshots(tickers=["aapl", "AAPL", "nvda"])
 
@@ -109,7 +109,7 @@ def test_list_snapshots_returns_mapped_domain_snapshots() -> None:
 
 def test_list_snapshots_rejects_invalid_ticker() -> None:
     client = FakeMassiveSnapshotClient()
-    service = DefaultMarketDataApplicationService(uow=FakeUoW(), massive_client=client)
+    service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
     with pytest.raises(ValueError, match="MARKET_DATA_INVALID_TICKERS"):
         service.list_snapshots(tickers=["AA-PL"])
@@ -117,7 +117,7 @@ def test_list_snapshots_rejects_invalid_ticker() -> None:
 
 def test_list_snapshots_rejects_too_many_unique_tickers() -> None:
     client = FakeMassiveSnapshotClient()
-    service = DefaultMarketDataApplicationService(uow=FakeUoW(), massive_client=client)
+    service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
     tickers = [f"T{idx:02d}" for idx in range(51)]
 
     with pytest.raises(ValueError, match="MARKET_DATA_INVALID_TICKERS"):
@@ -130,7 +130,7 @@ def test_list_snapshots_maps_rate_limit_error() -> None:
             _ = tickers
             raise RuntimeError("429 rate limit exceeded")
 
-    service = DefaultMarketDataApplicationService(uow=FakeUoW(), massive_client=RateLimitedClient())
+    service = MarketDataApplicationService(uow=FakeUoW(), massive_client=RateLimitedClient())
 
     with pytest.raises(ValueError, match="MARKET_DATA_RATE_LIMITED"):
         service.list_snapshots(tickers=["AAPL"])
@@ -139,7 +139,7 @@ def test_list_snapshots_maps_rate_limit_error() -> None:
 def test_list_snapshots_returns_empty_list_for_empty_payload() -> None:
     client = FakeMassiveSnapshotClient()
     client.payload = []
-    service = DefaultMarketDataApplicationService(uow=FakeUoW(), massive_client=client)
+    service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
     result = service.list_snapshots(tickers=["AAPL"])
 
@@ -158,7 +158,7 @@ def test_list_snapshots_maps_massive_ticker_snapshot_shape() -> None:
             last_trade=SnapshotLastTrade(price=203.12),
         )
     ]
-    service = DefaultMarketDataApplicationService(uow=FakeUoW(), massive_client=client)
+    service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
     result = service.list_snapshots(tickers=["AAPL"])
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.application.watchlist.service import DefaultWatchlistApplicationService
+from app.application.watchlist.service import WatchlistApplicationService
 from app.domain.watchlist.schemas import WatchlistItem
 
 
@@ -49,7 +49,7 @@ class FakeUoW:
 
 def test_add_item_normalizes_ticker_and_user_scope() -> None:
     repo = FakeWatchlistRepository()
-    service = DefaultWatchlistApplicationService(uow=FakeUoW(watchlist_repo=repo))
+    service = WatchlistApplicationService(uow=FakeUoW(watchlist_repo=repo))
 
     created = service.add_item(user_id=7, ticker=" aapl ")
 
@@ -59,7 +59,7 @@ def test_add_item_normalizes_ticker_and_user_scope() -> None:
 
 def test_list_items_rejects_invalid_user_id() -> None:
     repo = FakeWatchlistRepository()
-    service = DefaultWatchlistApplicationService(uow=FakeUoW(watchlist_repo=repo))
+    service = WatchlistApplicationService(uow=FakeUoW(watchlist_repo=repo))
 
     with pytest.raises(ValueError, match="Invalid user id"):
         service.list_items(user_id=0)
@@ -68,7 +68,7 @@ def test_list_items_rejects_invalid_user_id() -> None:
 def test_remove_item_normalizes_ticker() -> None:
     repo = FakeWatchlistRepository()
     repo.items_by_user[3] = [WatchlistItem(ticker="MSFT", created_at=None)]
-    service = DefaultWatchlistApplicationService(uow=FakeUoW(watchlist_repo=repo))
+    service = WatchlistApplicationService(uow=FakeUoW(watchlist_repo=repo))
 
     service.remove_item(user_id=3, ticker=" msft ")
 

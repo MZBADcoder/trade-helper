@@ -12,7 +12,7 @@ from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 
 
-class DefaultMarketDataApplicationService:
+class MarketDataApplicationService:
     def __init__(
         self,
         *,

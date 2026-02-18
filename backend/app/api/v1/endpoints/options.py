@@ -9,7 +9,7 @@ from app.api.deps import get_current_user, get_options_service
 from app.api.errors import raise_api_error
 from app.api.v1.dto.mappers import to_option_chain_out, to_option_contract_out, to_option_expirations_out
 from app.api.v1.dto.options import OptionChainOut, OptionContractOut, OptionExpirationsOut
-from app.application.options.service import DefaultOptionsApplicationService
+from app.application.options.service import OptionsApplicationService
 from app.domain.auth.schemas import User
 
 router = APIRouter()
@@ -21,7 +21,7 @@ def list_expirations(
     underlying: str,
     limit: int = 12,
     include_expired: bool = False,
-    service: DefaultOptionsApplicationService = Depends(get_options_service),
+    service: OptionsApplicationService = Depends(get_options_service),
     current_user: User = Depends(get_current_user),
 ) -> OptionExpirationsOut:
     _ = current_user
@@ -53,7 +53,7 @@ def list_chain(
     option_type: str = "all",
     limit: int = 200,
     cursor: str | None = None,
-    service: DefaultOptionsApplicationService = Depends(get_options_service),
+    service: OptionsApplicationService = Depends(get_options_service),
     current_user: User = Depends(get_current_user),
 ) -> OptionChainOut:
     _ = current_user
@@ -98,7 +98,7 @@ def list_chain(
 def get_contract(
     option_ticker: str,
     include_greeks: bool = Query(True),
-    service: DefaultOptionsApplicationService = Depends(get_options_service),
+    service: OptionsApplicationService = Depends(get_options_service),
     current_user: User = Depends(get_current_user),
 ) -> OptionContractOut:
     _ = current_user

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.application.auth.service import DefaultAuthApplicationService
+from app.application.auth.service import AuthApplicationService
 from app.core.security import hash_password, verify_password
 from app.domain.auth.constants import (
     ERROR_EMAIL_ALREADY_REGISTERED,
@@ -106,7 +106,7 @@ class FakeUoW:
 
 def test_register_normalizes_email_and_hashes_password() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     created = service.register(email=" Trader@Example.com ", password="StrongPass123")
 
@@ -129,7 +129,7 @@ def test_register_rejects_duplicate_email() -> None:
         updated_at=datetime.now(tz=timezone.utc),
         last_login_at=None,
     )
-    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     with pytest.raises(ValueError, match=ERROR_EMAIL_ALREADY_REGISTERED):
         service.register(email="Trader@example.com", password="StrongPass123")
@@ -137,7 +137,7 @@ def test_register_rejects_duplicate_email() -> None:
 
 def test_authenticate_updates_last_login_when_credentials_valid() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
     service.register(email="trader@example.com", password="StrongPass123")
 
     user = service.login(email="TRADER@example.com", password="StrongPass123")
@@ -158,7 +158,7 @@ def test_authenticate_rejects_invalid_or_inactive_user() -> None:
         updated_at=datetime.now(tz=timezone.utc),
         last_login_at=None,
     )
-    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
         service.login(email="trader@example.com", password="wrong-pass")
@@ -169,7 +169,7 @@ def test_authenticate_rejects_invalid_or_inactive_user() -> None:
 
 def test_get_user_rejects_invalid_user_id() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     with pytest.raises(ValueError, match=ERROR_INVALID_USER_ID):
         service.get_user(user_id=0)

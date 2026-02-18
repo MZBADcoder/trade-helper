@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from app.application.market_data.service import DefaultMarketDataApplicationService
+from app.application.market_data.service import MarketDataApplicationService
 from app.domain.market_data.schemas import MarketBar
 
 
@@ -123,7 +123,7 @@ def test_list_bars_uses_cache_when_coverage_sufficient() -> None:
         )
     ]
     repo = FakeMarketDataRepository(bars=cached, coverage=coverage)
-    service = DefaultMarketDataApplicationService(
+    service = MarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
         massive_client=FailMassiveClient(),
     )
@@ -155,7 +155,7 @@ def test_list_bars_fetches_massive_when_cache_missing() -> None:
     ]
     repo = FakeMarketDataRepository(bars=[], coverage=None)
     massive = FakeMassiveClient(payload)
-    service = DefaultMarketDataApplicationService(
+    service = MarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
         massive_client=massive,
     )
@@ -176,7 +176,7 @@ def test_list_bars_fetches_massive_when_cache_missing() -> None:
 
 def test_list_bars_rejects_invalid_date_range() -> None:
     repo = FakeMarketDataRepository(bars=[], coverage=None)
-    service = DefaultMarketDataApplicationService(
+    service = MarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
         massive_client=FailMassiveClient(),
     )
@@ -193,7 +193,7 @@ def test_list_bars_rejects_invalid_date_range() -> None:
 
 def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: pytest.MonkeyPatch) -> None:
     repo = FakeMarketDataRepository(bars=[], coverage=None)
-    service = DefaultMarketDataApplicationService(
+    service = MarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
         massive_client=FailMassiveClient(),
     )
@@ -238,7 +238,7 @@ def test_prefetch_default_calls_list_bars_with_normalized_ticker(monkeypatch: py
 
 def test_prefetch_default_rejects_blank_ticker() -> None:
     repo = FakeMarketDataRepository(bars=[], coverage=None)
-    service = DefaultMarketDataApplicationService(
+    service = MarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
         massive_client=FailMassiveClient(),
     )

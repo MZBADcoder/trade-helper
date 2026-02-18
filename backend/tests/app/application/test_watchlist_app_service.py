@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.application.watchlist.service import DefaultWatchlistApplicationService
+from app.application.watchlist.service import WatchlistApplicationService
 from app.domain.watchlist.schemas import WatchlistItem
 
 
@@ -57,7 +57,7 @@ class FakeMarketDataService:
 def test_add_item_triggers_market_data_prefetch() -> None:
     repo = FakeWatchlistRepository()
     market_data = FakeMarketDataService()
-    service = DefaultWatchlistApplicationService(
+    service = WatchlistApplicationService(
         uow=FakeUoW(watchlist_repo=repo),
         market_data_service=market_data,
     )

@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import logging
 
-from app.application.market_data.service import DefaultMarketDataApplicationService
+from app.application.market_data.service import MarketDataApplicationService
 from app.domain.watchlist.schemas import WatchlistItem
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 logger = logging.getLogger(__name__)
 
 
-class DefaultWatchlistApplicationService:
+class WatchlistApplicationService:
     def __init__(
         self,
         *,
         uow: SqlAlchemyUnitOfWork,
-        market_data_service: DefaultMarketDataApplicationService | None = None,
+        market_data_service: MarketDataApplicationService | None = None,
     ) -> None:
         self._uow = uow
         self._market_data_service = market_data_service

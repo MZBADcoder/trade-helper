@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import get_auth_service, get_current_user
 from app.api.v1.dto.auth import AccessTokenOut, LoginRequest, RegisterRequest, UserOut
 from app.api.v1.dto.mappers import to_access_token_out, to_user_out
-from app.application.auth.service import DefaultAuthApplicationService
+from app.application.auth.service import AuthApplicationService
 from app.domain.auth.constants import ERROR_EMAIL_ALREADY_REGISTERED
 from app.domain.auth.schemas import User
 
@@ -15,7 +15,7 @@ router = APIRouter()
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(
     payload: RegisterRequest,
-    service: DefaultAuthApplicationService = Depends(get_auth_service),
+    service: AuthApplicationService = Depends(get_auth_service),
 ) -> UserOut:
     try:
         user = service.register(email=payload.email, password=payload.password)
@@ -29,7 +29,7 @@ def register(
 @router.post("/login", response_model=AccessTokenOut)
 def login(
     payload: LoginRequest,
-    service: DefaultAuthApplicationService = Depends(get_auth_service),
+    service: AuthApplicationService = Depends(get_auth_service),
 ) -> AccessTokenOut:
     try:
         token = service.login(email=payload.email, password=payload.password)

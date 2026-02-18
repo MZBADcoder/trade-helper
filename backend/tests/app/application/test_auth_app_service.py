@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.application.auth.service import DefaultAuthApplicationService
+from app.application.auth.service import AuthApplicationService
 from app.domain.auth.constants import ERROR_EMAIL_ALREADY_REGISTERED
 from app.domain.auth.schemas import User, UserCredentials
 
@@ -92,7 +92,7 @@ class FakeUoW:
 
 def test_register_and_login_issue_valid_access_token() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
 
     created = service.register(email="Trader@Example.com", password="strong-pass-123")
     token = service.login(email="trader@example.com", password="strong-pass-123")
@@ -106,7 +106,7 @@ def test_register_and_login_issue_valid_access_token() -> None:
 
 def test_login_rejects_wrong_password() -> None:
     repo = FakeAuthRepository()
-    service = DefaultAuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
     service.register(email="trader@example.com", password="strong-pass-123")
 
     with pytest.raises(ValueError, match="Invalid email or password"):

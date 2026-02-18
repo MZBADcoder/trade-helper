@@ -21,7 +21,7 @@ from app.domain.auth.schemas import AccessToken, User, UserCredentials
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 
-class DefaultAuthApplicationService:
+class AuthApplicationService:
     def __init__(self, *, uow: SqlAlchemyUnitOfWork) -> None:
         self._uow = uow
 

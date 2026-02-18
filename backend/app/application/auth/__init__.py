@@ -1,3 +1,3 @@
-from app.application.auth.service import DefaultAuthApplicationService
+from app.application.auth.service import AuthApplicationService
 
-__all__ = ["DefaultAuthApplicationService"]
+__all__ = ["AuthApplicationService"]

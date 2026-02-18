@@ -9,7 +9,7 @@ from app.api.deps import get_current_user, get_market_data_service
 from app.api.errors import raise_api_error
 from app.api.v1.dto.market_data import MarketBarOut, MarketSnapshotsOut
 from app.api.v1.dto.mappers import to_market_bar_out, to_market_snapshot_out
-from app.application.market_data.service import DefaultMarketDataApplicationService
+from app.application.market_data.service import MarketDataApplicationService
 from app.domain.auth.schemas import User
 
 router = APIRouter()
@@ -27,7 +27,7 @@ def list_bars(
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),
     limit: int | None = Query(None, ge=1, le=5000),
-    service: DefaultMarketDataApplicationService = Depends(get_market_data_service),
+    service: MarketDataApplicationService = Depends(get_market_data_service),
     current_user: User = Depends(get_current_user),
 ) -> list[MarketBarOut]:
     _ = current_user
@@ -83,7 +83,7 @@ def list_bars(
 @router.get("/snapshots", response_model=MarketSnapshotsOut)
 def list_snapshots(
     tickers: str,
-    service: DefaultMarketDataApplicationService = Depends(get_market_data_service),
+    service: MarketDataApplicationService = Depends(get_market_data_service),
     current_user: User = Depends(get_current_user),
 ) -> MarketSnapshotsOut:
     _ = current_user

@@ -14,7 +14,7 @@ _OPTION_TYPES = {"call", "put", "all"}
 _EXPIRATION_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-class DefaultOptionsApplicationService:
+class OptionsApplicationService:
     def __init__(
         self,
         *,
