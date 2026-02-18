@@ -8,6 +8,14 @@ export type ApiRequestOptions = {
 };
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { data } = await apiRequestWithResponse<T>(path, options);
+  return data;
+}
+
+export async function apiRequestWithResponse<T>(
+  path: string,
+  options: ApiRequestOptions = {}
+): Promise<{ data: T; response: Response }> {
   const method = options.method ?? "GET";
   const query = buildQueryString(options.query);
   const url = `${API_BASE}${path}${query}`;
@@ -42,10 +50,10 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   }
 
   if (resp.status === 204) {
-    return undefined as T;
+    return { data: undefined as T, response: resp };
   }
 
-  return (await readJson<T>(resp)) as T;
+  return { data: (await readJson<T>(resp)) as T, response: resp };
 }
 
 function buildQueryString(query: ApiRequestOptions["query"]): string {
