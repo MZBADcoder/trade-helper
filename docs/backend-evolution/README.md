@@ -38,6 +38,9 @@
 - `BE-0004` 对 PRD-0001 `market_data + options` application service 的 Unit Test 设计（TDD 第一阶段）
   - `docs/backend-evolution/BE-0004-prd-0001-market-data-snapshots-app-service-unit-test-plan.md`
   - 备注：统一列出两个 service 全部公有方法的最小测试方法与扩展用例；options 扩展项当前阶段 HOLD
+- `BE-0005` 对 PRD-0001 `market-data/bars` 混合拉取策略设计（day/minute 分表、minute 按交易日分区、5/15/60 预聚合 + 未完结实时补算）
+  - `docs/backend-evolution/BE-0005-prd-0001-market-data-hybrid-fetch-strategy.md`
+  - 备注：Redis 仅保留 Celery broker 角色，不作为行情缓存
 
 ## 模板
 
