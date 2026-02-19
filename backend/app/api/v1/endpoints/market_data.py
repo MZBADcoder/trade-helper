@@ -5,7 +5,10 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from app.api.deps import get_current_user, get_market_data_service
+from app.api.deps import (
+    get_current_user,
+    get_market_data_service,
+)
 from app.api.errors import raise_api_error
 from app.api.v1.dto.market_data import MarketBarOut, MarketSnapshotsOut
 from app.api.v1.dto.mappers import to_market_bar_out, to_market_snapshot_out

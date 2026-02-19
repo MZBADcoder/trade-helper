@@ -25,6 +25,7 @@ requests = "^2.32.3"
 
 [tool.poetry.scripts]
 start-api = "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+start-realtime = "app.tasks.realtime:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

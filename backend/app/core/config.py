@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     market_data_intraday_lookback_days: int = 5
     market_data_enable_direct_fallback: bool = True
     market_data_minute_retention_trade_days: int = 10
+    market_stream_max_symbols_per_connection: int = 100
+    market_stream_queue_size: int = 512
+    market_stream_ping_interval_seconds: int = 20
+    market_stream_ping_timeout_seconds: int = 10
+    market_stream_ping_max_misses: int = 2
+    market_stream_redis_channel: str = "market:stocks:events"
+    market_stream_registry_prefix: str = "market:stocks:subs"
+    market_stream_registry_ttl_seconds: int = 30
+    market_stream_registry_refresh_seconds: int = 10
+    market_stream_realtime_reconcile_interval_seconds: int = 2
+    market_stream_gateway_instance_id: str | None = None
     options_data_enabled: bool = False
 
     postgres_db: str = "trader_helper"

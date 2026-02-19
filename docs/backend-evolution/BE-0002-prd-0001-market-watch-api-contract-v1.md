@@ -1,8 +1,9 @@
 # BE-0002 - PRD-0001 行情接口合同设计（v1）
 
-## 0. 执行状态更新（2026-02-16）
+## 0. 执行状态更新（2026-02-19）
 
 - 当前迭代仅推进 Stock 数据主线。
+- `WS /api/v1/market-data/stream` 的股票链路已落地（鉴权、订阅、心跳、错误码、Redis 广播）。
 - 期权后端开发（`/api/v1/options/*` 与期权相关 WS 订阅部分）进入 HOLD。
 - 本文 options 合同仍保留，作为下一阶段恢复开发时的接口基线；不作为当前阶段验收项。
 
@@ -280,20 +281,21 @@ Query 参数（v1 固化）：
 - JWT 载体（浏览器）：`query token` 或 `cookie` 或 `Sec-WebSocket-Protocol`
 - JWT 载体（非浏览器）：可选 `Authorization` header
 - 认证失败：关闭连接，close code `4401`
+- `cookie` 鉴权时要求 `Origin` 命中 allowlist，否则关闭连接，close code `4403`
 
 #### 客户端 -> 服务端消息
 
 ```json
 {
   "action": "subscribe",
-  "symbols": ["AAPL", "O:AAPL260221C00210000"],
+  "symbols": ["AAPL", "NVDA"],
   "channels": ["trade", "quote", "aggregate"]
 }
 ```
 
-- `action`：`subscribe|unsubscribe|ping`
+- `action`：`subscribe|unsubscribe|ping|pong`
 - 单连接 symbol 上限：`100`
-- 仅允许订阅用户 watchlist + 当前选中合约集合
+- 当前阶段仅允许订阅用户 watchlist（股票）
 
 #### 服务端 -> 客户端消息（统一 envelope）
 
@@ -335,7 +337,7 @@ Query 参数（v1 固化）：
 #### 心跳
 
 - 服务端每 `20s` 发送 `{"type":"system.ping"}`
-- 客户端需在 `10s` 内回应 `{"action":"ping"}` 或 pong 帧
+- 客户端需在收到该次 `system.ping` 后 `10s` 内回应 `{"action":"ping"}` 或 `{"action":"pong"}`
 - 连续 `2` 次超时则关闭连接，close code `4408`
 
 ## 4. Data/Task Impact
@@ -345,8 +347,8 @@ Query 参数（v1 固化）：
 - Background jobs changes:
   - 可选新增预热任务：watchlist snapshots 短 TTL 预取
 - Caching/queue impact:
-  - snapshots/expirations/chain/contracts 建议接入 Redis cache-aside
-  - WS 依赖 Redis Pub/Sub 进行多实例广播
+  - 当前阶段不引入 snapshots/expirations/chain/contracts 的 Redis cache-aside
+  - WS 使用 Redis Pub/Sub 进行多实例广播
 
 ## 5. Delivery Plan
 

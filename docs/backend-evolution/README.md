@@ -34,13 +34,13 @@
   - 备注：仅定义合同，不含实现代码；其中 options 合同当前阶段为 HOLD 预留
 - `BE-0003` 对 PRD-0001 新增/修改接口的 Unit Test 设计（覆盖 BE-0002 合同）
   - `docs/backend-evolution/BE-0003-prd-0001-market-watch-api-unit-test-plan.md`
-  - 备注：以 “API 层单测 + 可选合同测试 + WS 协议测试” 分层描述；options API 测试当前阶段 HOLD
+  - 备注：以 “API 层单测 + 可选合同测试 + WS 协议测试” 分层描述；WS 协议基础测试已落地，options API 测试当前阶段 HOLD
 - `BE-0004` 对 PRD-0001 `market_data + options` application service 的 Unit Test 设计（TDD 第一阶段）
   - `docs/backend-evolution/BE-0004-prd-0001-market-data-snapshots-app-service-unit-test-plan.md`
   - 备注：统一列出两个 service 全部公有方法的最小测试方法与扩展用例；options 扩展项当前阶段 HOLD
 - `BE-0005` 对 PRD-0001 `market-data/bars` 混合拉取策略设计（day/minute 分表、minute 按交易日分区、5/15/60 预聚合 + 未完结实时补算）
   - `docs/backend-evolution/BE-0005-prd-0001-market-data-hybrid-fetch-strategy.md`
-  - 备注：Redis 仅保留 Celery broker 角色，不作为行情缓存
+  - 备注：`bars` 查询/聚合不使用 Redis 缓存；WS 实时广播使用 Redis Pub/Sub
 
 ## 模板
 

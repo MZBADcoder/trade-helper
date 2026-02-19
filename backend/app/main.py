@@ -4,6 +4,7 @@ from fastapi import FastAPI
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.application import container
 from app.api.errors import install_api_error_handlers
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -14,6 +15,7 @@ from app.infrastructure.db.init_db import init_db
 async def lifespan(_: FastAPI):
     init_db()
     yield
+    await container.shutdown_market_stream_hub()
 
 
 def create_app() -> FastAPI:

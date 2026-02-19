@@ -22,9 +22,10 @@ poetry run uvicorn app.main:app --reload --port 8000
 ```bash
 poetry run celery -A app.core.celery_app worker -l INFO
 poetry run celery -A app.core.celery_app beat -l INFO
+poetry run python -m app.tasks.realtime
 ```
 
 ## 说明
-- Compose 服务：`frontend`（Vite）、`api`（FastAPI）、`worker`、`beat`、`redis`、`postgres`
+- Compose 服务：`frontend`（Vite）、`api`（FastAPI）、`realtime`、`worker`、`beat`、`redis`、`postgres`
 - API 不做 CPU 密集计算；定时扫描由 Celery Beat 投递，worker 执行
 - 数据存储在 Postgres 持久卷 `postgres_data`

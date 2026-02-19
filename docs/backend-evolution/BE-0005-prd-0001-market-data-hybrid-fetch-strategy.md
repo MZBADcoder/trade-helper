@@ -1,6 +1,6 @@
 # BE-0005 - PRD-0001 market-data 混合拉取与聚合策略（v2）
 
-## 0. 执行状态更新（2026-02-18）
+## 0. 执行状态更新（2026-02-19）
 
 - 当前实现仍是“按请求粒度直接回源 Massive + 同粒度落库”。
 - 本文更新为 PMF 阶段 v2 方案：
@@ -8,7 +8,7 @@
   - `minute` 按交易日分区，保留最近 10 个交易日
   - 前端聚合粒度先收敛到 `5m/15m/60m`
   - `multiplier>1` 查询采用“预聚合 + 未完结桶实时补算”混合返回
-- Redis 仅保留 Celery broker 用途，不作为行情聚合/常用数据缓存。
+- 口径更新：Redis 已用于 WS 实时消息广播（Pub/Sub + 订阅注册表）；但 `bars` 聚合查询链路不使用 Redis 缓存。
 
 ## 1. Context
 
@@ -107,7 +107,7 @@
 
 ### 4.5 预聚合作业（Celery）
 
-- 保留 Celery；Redis 仅用于 broker/调度，不参与行情缓存。
+- 保留 Celery；`bars` 聚合作业与查询不依赖 Redis 缓存。
 - 新增作业（建议）：
   - `aggregate_minute_bars_5m`
   - `aggregate_minute_bars_15m`
@@ -160,7 +160,7 @@
 - [ ] `5m/15m/60m` 已完结桶由 Celery 预聚合写入聚合表
 - [ ] `multiplier>1` 查询可同时返回“已完结预聚合桶 + 未完结实时桶”
 - [ ] `60m` 使用 `09:30 ET` 锚点且支持收盘截断桶
-- [ ] Redis 未被用于行情缓存（仅保留 Celery broker 角色）
+- [ ] `bars` 聚合链路未引入 Redis 缓存（Redis 仅用于 Celery 与 WS 广播）
 - [ ] 单测覆盖聚合口径、桶边界、DST、回源兜底与幂等 upsert
 
 ## 7. 风险与回滚

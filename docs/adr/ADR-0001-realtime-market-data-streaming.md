@@ -1,7 +1,7 @@
 # ADR-0001 — 实时行情推送架构（服务端代理 Massive WebSocket）
 
 日期：2026-02-09  
-状态：Proposed
+状态：Accepted（2026-02-19）
 
 ## 背景
 
@@ -53,7 +53,7 @@
 
 1) `realtime` 进程负责 Massive WS 连接、重连、订阅管理与消息标准化（统一 envelope）。  
 2) API 提供 `WS /api/v1/market-data/stream`：
-   - 鉴权后允许订阅「watchlist + 当前选中合约」范围
+   - 当前阶段鉴权后仅允许订阅 `watchlist`（股票）范围
    - 服务端强制订阅上限（ticker/合约数量）并返回可见错误提示  
 3) 当 WS 不可用或超过重连阈值时，前端/后端自动切换为 REST polling（频率可配置）。  
 
@@ -78,7 +78,7 @@
    - 前端先请求 `GET /api/v1/market-data/bars?ticker=AAPL&timespan=minute&from=...&to=...` 拉取一段历史 K 线（例如最近 300 根）。
    - 同时请求 `GET /api/v1/market-data/snapshots?tickers=AAPL,NVDA,...` 批量加载 watchlist 最新快照，先把列表与图表首屏渲染出来。
 2. **建立实时通道（WebSocket）**
-   - 前端通过浏览器可用载体（推荐 `query` 或 `cookie`）携带 JWT 连接 `WS /api/v1/market-data/stream`，发送订阅指令（`AAPL` + 当前页面关注合约）。
+   - 前端通过浏览器可用载体（推荐 `query` 或 `cookie`）携带 JWT 连接 `WS /api/v1/market-data/stream`，发送订阅指令（当前阶段仅股票 watchlist）。
    - API 校验订阅权限与上限，注册连接并开始接收该用户所需实时流。
 3. **实时增量对齐历史窗口**
    - `realtime` 进程从 Massive 收到 `AAPL` tick/quote/trade 后，标准化为统一 envelope 并通过 Redis 广播。
@@ -91,11 +91,9 @@
 
 该协同模式保证：**REST 负责首屏和补洞的一致性，WS 负责低延迟增量更新**，两者配合可在复杂网络环境下仍维持稳定体验。
 
-### 服务端时序（含缓存命中/未命中）
+### 服务端时序（当前实现）
 
-1. 前端请求 `bars/snapshots` 后，API 优先查 Redis：
-   - **命中**：直接返回，降低首屏延迟；
-   - **未命中**：调用 Massive REST 拉取后回填 Redis（带 TTL）再返回。
+1. 前端请求 `bars/snapshots` 后，API 按既有查询链路返回（当前阶段不引入 Redis cache-aside）。
 2. 前端 WS 订阅成功后，API 不再依赖高频 REST 刷新最新价，而由 WS 增量驱动 UI 更新。
 3. 若 WS 中断：
    - 前端进入短周期 REST 轮询；
@@ -110,7 +108,7 @@
 ## 影响与后果
 
 - 需要新增一个可部署的 `realtime` 进程（Compose service）
-- Redis 除 Celery broker 外可能承担实时广播（需要约定 channel 与消息格式）
+- Redis 除 Celery broker 外已承担实时广播（已约定 channel 与消息格式）
 - 需要定义：
   - 订阅协议（请求/响应）
   - 消息 envelope（`type/data/ts/source`）

@@ -1,8 +1,9 @@
 # BE-0001 — PRD-0001 后端接口拆分（实时行情 / 数据观察）
 
-## 0. 执行状态更新（2026-02-16）
+## 0. 执行状态更新（2026-02-19）
 
 - 当前迭代优先完成 Stock 数据主线。
+- `WS /api/v1/market-data/stream`（股票）已落地：鉴权、订阅、心跳、配额与 Redis 广播链路可用。
 - options 后端相关开发进入 HOLD，待 Stock 主线里程碑完成后恢复。
 - 本文 options 相关条目保留为下一阶段基线，不纳入当前阶段验收。
 
@@ -28,6 +29,7 @@
 | POST | `/api/v1/watchlist` | 添加关注标的 | Yes |
 | DELETE | `/api/v1/watchlist/{ticker}` | 删除关注标的 | Yes |
 | GET | `/api/v1/market-data/bars` | 查询 OHLCV bars（当前用于股票；后续可复用于期权合约） | Yes |
+| WS | `/api/v1/market-data/stream` | 股票实时推送（鉴权/订阅/心跳/配额） | Yes |
 
 ## 3. API Changes
 
@@ -36,7 +38,7 @@
 | Method | Path | Purpose | Auth | Priority |
 |---|---|---|---|---|
 | GET | `/api/v1/market-data/snapshots` | 批量获取 ticker 快照（Last/Change/%Change/UpdatedAt 等） | Yes | P0 |
-| WS | `/api/v1/market-data/stream` | 实时推送（股票；期权推送 HOLD） | Yes | HOLD |
+| WS | `/api/v1/market-data/stream` | 实时推送（股票；期权推送 HOLD） | Yes | P0 |
 | GET | `/api/v1/options/expirations` | 获取某 underlying 的到期列表 | Yes | HOLD |
 | GET | `/api/v1/options/chain` | 获取某 underlying + expiration 的期权链快照 | Yes | HOLD |
 | GET | `/api/v1/options/contracts/{option_ticker}` | 获取单合约详情/快照（用于合约详情页） | Yes | HOLD |
@@ -62,7 +64,7 @@
     - `updated_at`（UTC ISO8601）
     - `source`（REST/WS，便于 UI 展示状态）
 - `WS /market-data/stream`
-  - 订阅策略：仅允许订阅「watchlist + 当前选中合约」范围，并有服务端上限保护
+  - 订阅策略：当前阶段仅允许订阅 `watchlist`（股票）范围，并有服务端上限保护
   - 消息：统一 envelope（`type` + `data` + `ts`），前端按 `type` 路由处理
   - 鉴权：WebSocket 握手必须携带 JWT。浏览器 `/terminal` 仅使用 `query` / `cookie` / `Sec-WebSocket-Protocol` 传递令牌；非浏览器客户端可选 `header`。服务端校验失败立即拒绝
   - 心跳：服务端定时 ping，客户端需响应，超时清理连接
@@ -87,10 +89,7 @@
 
 ### 5.1 服务端处理细节（实现建议）
 
-- `bars/snapshots` 查询链路采用 **Cache-Aside**：
-  - 先查 Redis；
-  - 未命中再查 Massive REST；
-  - 将结果写回 Redis（按 endpoint 分别设置 TTL）。
+- 当前阶段 `bars/snapshots` 查询链路不引入 Redis cache-aside（按 BE-0005 混合策略与现有 REST 链路执行）。
 - WS 增量消息落地统一 envelope（`type/data/ts/source`），并携带 `symbol` 与 `event_ts`，便于前端幂等合并。
 - 前端侧应维护 `last_applied_ts_by_symbol`，对过期消息直接丢弃，避免重连后的重复写入。
 
@@ -108,9 +107,9 @@
 - Background jobs changes：
   - 预拉取（prefetch）与数据修复任务可继续由 Celery 承担
 - Caching/queue impact：
-  - Redis 除 Celery broker 外，建议增加 pub/sub 或 stream 用于实时消息广播与跨进程分发
-  - 关键缓存：watchlist 快照、热门 ticker 最新价/最近 bars（设置 TTL）
-  - 新增 realtime 进程（长连接）负责 Massive WS → Redis
+  - Redis 当前用于 Celery broker 与 WS 实时消息广播（Pub/Sub + 订阅注册表）
+  - 当前阶段不启用 watchlist/snapshots/bars 的 Redis 缓存
+  - realtime 进程（长连接）负责 Massive WS → Redis
 
 ## 7. Delivery Plan（建议实现顺序）
 
@@ -124,7 +123,7 @@
 
 - [ ] `/terminal` 端到端不依赖 mock（bars + snapshot 可用）
 - [ ] options chain 可加载（到期列表 + chain，HOLD，下一阶段验收）
-- [ ] WS 推送可用，且具备断线重连与服务端配额保护
+- [x] WS 推送可用，且具备断线重连与服务端配额保护
 - [ ] 超限/降级状态可见（便于排障与成本控制）
-- [ ] WebSocket 鉴权失败有明确错误码/提示
+- [x] WebSocket 鉴权失败有明确错误码/提示
 - [ ] WS 中断与恢复后的补拉纠偏可复现并通过验收

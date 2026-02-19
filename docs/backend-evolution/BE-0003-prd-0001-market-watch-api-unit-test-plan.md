@@ -1,12 +1,13 @@
 # BE-0003 - PRD-0001 新增/修改接口 Unit Test 设计（基于 BE-0002/BE-0005）
 
-## 0. 执行状态更新（2026-02-18）
+## 0. 执行状态更新（2026-02-19）
 
 - 当前迭代继续优先 Stock 主线 API 测试；options API 测试仍为 HOLD。
 - `GET /api/v1/market-data/bars` 已接入 BE-0005 混合策略的 header 语义：
   - `X-Data-Source` 支持 `REST|DB|DB_AGG|DB_AGG_MIXED`
   - `X-Partial-Range` 保留 `true|false`
 - API 测试已覆盖最小回归路径（snapshots 成功/限额、bars symbol 二选一、bars header 枚举）。
+- WS 协议测试已落地：鉴权失败 close code、watchlist 权限、订阅上限与三类股票消息推送。
 
 ## 1. 目标与范围
 
@@ -20,7 +21,7 @@
 - 修改 REST：
   - `GET /api/v1/market-data/bars`（参数校验、symbol 二选一、header 语义）
 - 新增 WS：
-  - `WS /api/v1/market-data/stream`（仍处于计划态）
+  - `WS /api/v1/market-data/stream`（已实现并纳入回归）
 
 约定：
 
@@ -33,6 +34,7 @@
 测试文件：
 
 - `backend/tests/app/api/test_market_data_endpoints.py`
+- `backend/tests/app/api/test_market_data_stream_endpoint.py`
 
 已覆盖：
 
@@ -57,11 +59,15 @@
 - 用 ASGI client 验证 query/path 解析行为（`alias="from"`、日期格式、limit 上限）
 - 对未来错误码细化变更更敏感
 
-### 3.3 WS 协议 tests（后续）
+### 3.3 WS 协议 tests（现状 + 待补）
 
-- 鉴权失败 close code
-- 订阅协议与配额错误码
-- 心跳超时关闭语义
+- 已覆盖：
+  - 鉴权失败 close code（`4401`）
+  - 订阅权限错误码（`STREAM_SYMBOL_NOT_ALLOWED`）
+  - 订阅上限错误码（`STREAM_SUBSCRIPTION_LIMIT_EXCEEDED`）
+  - `market.quote` / `market.trade` / `market.aggregate` 推送
+- 待补：
+  - 心跳超时关闭语义（`4408`）
 
 ## 4. 接口测试清单（更新版）
 
@@ -124,11 +130,12 @@ header 合同：
 1. 先补 `bars` 参数校验未覆盖项（非法 timespan、非法 multiplier、from/to 反序、413 场景）。
 2. 再补 `snapshots` 的非法 ticker 与上游错误映射。
 3. HOLD 解除后恢复 `options/*` API 单测。
-4. 最后补 `WS /market-data/stream` 协议测试。
+4. 最后补 `WS /market-data/stream` 的心跳超时（`4408`）与异常中断恢复语义测试。
 
 ## 6. 完成标准
 
 - `market-data/snapshots` 与 `market-data/bars` 覆盖成功路径 + 关键失败路径
 - `bars` header 合同（含 `DB_AGG_MIXED`）有稳定断言
+- `WS /market-data/stream` 覆盖鉴权、权限、上限与三类股票消息推送
 - options 当前阶段不回归；扩展覆盖待 HOLD 解除后补齐
 - 测试代码保持 No Interfaces（不引入 `Protocol/ABC`）

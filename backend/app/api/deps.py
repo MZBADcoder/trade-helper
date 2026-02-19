@@ -7,6 +7,7 @@ from app.api.errors import raise_api_error
 from app.application import container
 from app.application.auth.service import AuthApplicationService
 from app.application.market_data.service import MarketDataApplicationService
+from app.application.market_data.stream_hub import StockMarketStreamHub
 from app.application.options.service import OptionsApplicationService
 from app.application.watchlist.service import WatchlistApplicationService
 from app.domain.auth.schemas import User
@@ -28,6 +29,10 @@ def get_options_service() -> OptionsApplicationService:
 
 def get_auth_service() -> AuthApplicationService:
     return container.build_auth_service()
+
+
+def get_market_stream_hub() -> StockMarketStreamHub:
+    return container.build_market_stream_hub()
 
 
 def get_current_user(
