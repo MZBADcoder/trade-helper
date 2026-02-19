@@ -4,7 +4,6 @@ import {
   buildIndicators,
   listMarketBarsWithMeta,
   listMarketSnapshots,
-  type MarketBar,
   type MarketSnapshot
 } from "@/entities/market";
 import { useSession } from "@/entities/session";
@@ -17,6 +16,7 @@ import {
   type TimeframeOption,
   type TerminalMarketWatchViewModel
 } from "./types";
+import { parseStreamEnvelope, type StreamMarketMessage, type StreamStatusMessage } from "./streamProtocol";
 
 export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
   { key: "5m", label: "5m" },
@@ -28,7 +28,6 @@ export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
 ];
 
 const STREAM_CHANNELS = ["trade", "quote", "aggregate"];
-const STREAM_DEGRADED_THRESHOLD_MS = 10_000;
 const SNAPSHOT_POLL_INTERVAL_MS = 4_000;
 const BARS_POLL_INTERVAL_MS = 20_000;
 const RECONNECT_MAX_DELAY_MS = 10_000;
@@ -64,7 +63,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectAttemptRef = React.useRef(0);
-  const reconnectingSinceRef = React.useRef<number | null>(null);
   const reconnectTimerRef = React.useRef<number | null>(null);
   const snapshotPollRef = React.useRef<number | null>(null);
   const barsPollRef = React.useRef<number | null>(null);
@@ -111,7 +109,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     });
   }, []);
 
-  const applyStreamSnapshot = React.useCallback((symbol: string, payload: Record<string, unknown>, eventAt: string) => {
+  const applyStreamMarketMessage = React.useCallback((message: StreamMarketMessage) => {
+    const symbol = message.symbol;
+    const eventAt = message.eventTs;
     const incomingTs = toMillis(eventAt);
     const knownTs = snapshotTsRef.current[symbol] ?? 0;
     if (incomingTs < knownTs) {
@@ -122,19 +122,21 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
     setSnapshotMap((previous) => {
       const base = previous[symbol] ?? createEmptySnapshot(symbol);
+      const nextLast = resolveSnapshotLast(base.last, message);
+      const nextOpen = message.type === "market.aggregate" ? (message.open ?? base.open) : base.open;
+      const nextHigh = message.type === "market.aggregate" ? (message.high ?? base.high) : base.high;
+      const nextLow = message.type === "market.aggregate" ? (message.low ?? base.low) : base.low;
+      const nextVolume = message.type === "market.aggregate" ? (message.volume ?? base.volume) : base.volume;
 
       return {
         ...previous,
         [symbol]: {
           ...base,
-          last: asNumber(payload.last) ?? asNumber(payload.price) ?? base.last,
-          change: asNumber(payload.change) ?? base.change,
-          change_pct: asNumber(payload.change_pct) ?? base.change_pct,
-          open: asNumber(payload.open) ?? base.open,
-          high: asNumber(payload.high) ?? base.high,
-          low: asNumber(payload.low) ?? base.low,
-          volume: asNumber(payload.volume) ?? base.volume,
-          market_status: asString(payload.market_status) ?? base.market_status,
+          last: nextLast,
+          open: nextOpen,
+          high: nextHigh,
+          low: nextLow,
+          volume: nextVolume,
           updated_at: eventAt,
           source: "WS"
         }
@@ -155,8 +157,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     });
 
     setLastSyncAt(eventAt);
-    setStreamSource("WS");
-    setDataLatency("real-time");
   }, []);
 
   const refreshWatchlist = React.useCallback(async () => {
@@ -360,48 +360,75 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     }
   }, []);
 
+  const setDegradedMode = React.useCallback(
+    (status: StreamStatus = "degraded") => {
+      setStreamStatus(status);
+      setStreamSource("REST");
+      setDataLatency("delayed");
+      startDegradedPolling();
+    },
+    [startDegradedPolling]
+  );
+
+  const applySystemStatus = React.useCallback(
+    (message: StreamStatusMessage) => {
+      if (message.latency) {
+        setDataLatency(message.latency);
+      }
+
+      const isRealtime =
+        message.latency === "real-time" && (message.connectionState === null || message.connectionState === "connected");
+      if (isRealtime) {
+        stopDegradedPolling();
+        setStreamStatus("connected");
+        setStreamSource("WS");
+        setDataLatency("real-time");
+        return;
+      }
+
+      if (message.connectionState === "connected" && message.latency !== "delayed") {
+        return;
+      }
+
+      setDegradedMode();
+
+      if (message.message) {
+        setLastError(message.message);
+      }
+    },
+    [setDegradedMode, stopDegradedPolling]
+  );
+
   const handleStreamMessage = React.useCallback(
     (raw: string) => {
-      const payload = safeJsonParse(raw);
-      if (!payload) return;
+      const message = parseStreamEnvelope(raw);
+      if (!message) return;
 
-      const messageType = asString(payload.type);
-      const messageData = asRecord(payload.data) ?? {};
-
-      if (messageType === "system.ping") {
+      if (message.type === "system.ping") {
         const ws = wsRef.current;
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ action: "ping" }));
+          ws.send(JSON.stringify({ action: "pong" }));
         }
         return;
       }
 
-      if (messageType === "system.status") {
-        const latencyValue = asString(messageData.latency)?.toLowerCase();
-        if (latencyValue === "real-time" || latencyValue === "delayed") {
-          setDataLatency(latencyValue);
+      if (message.type === "system.status") {
+        applySystemStatus(message);
+        return;
+      }
+
+      if (message.type === "system.error") {
+        const errorMessage = message.message ?? "stream error";
+        setLastError(message.code ? `${message.code}: ${errorMessage}` : errorMessage);
+        if (message.code === "STREAM_UPSTREAM_UNAVAILABLE") {
+          setDegradedMode();
         }
         return;
       }
 
-      if (messageType === "system.error") {
-        const code = asString(messageData.code);
-        const message = asString(messageData.message) ?? "stream error";
-        setLastError(code ? `${code}: ${message}` : message);
-        return;
-      }
-
-      if (!messageType?.startsWith("market.")) {
-        return;
-      }
-
-      const symbol = normalizeSymbol(asString(messageData.symbol));
-      if (!symbol) return;
-
-      const eventAt = asString(messageData.event_ts) ?? asString(payload.ts) ?? new Date().toISOString();
-      applyStreamSnapshot(symbol, messageData, eventAt);
+      applyStreamMarketMessage(message);
     },
-    [applyStreamSnapshot]
+    [applyStreamMarketMessage, applySystemStatus, setDegradedMode]
   );
 
   const connectStream = React.useCallback(() => {
@@ -422,12 +449,11 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
     ws.onopen = () => {
       reconnectAttemptRef.current = 0;
-      reconnectingSinceRef.current = null;
 
       stopDegradedPolling();
       setStreamStatus("connected");
-      setStreamSource("WS");
-      setDataLatency("real-time");
+      setStreamSource("REST");
+      setDataLatency("delayed");
       setLastError(null);
       setLastSyncAt(new Date().toISOString());
 
@@ -467,21 +493,13 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         setLastError("WS 鉴权失败，请重新登录。");
         return;
       }
-
-      if (!reconnectingSinceRef.current) {
-        reconnectingSinceRef.current = Date.now();
+      if (event.code === 4403) {
+        setStreamStatus("disconnected");
+        setLastError("WS Origin 校验失败，请检查前端域名与后端配置。");
+        return;
       }
 
-      const reconnectDuration = Date.now() - reconnectingSinceRef.current;
-      if (reconnectDuration >= STREAM_DEGRADED_THRESHOLD_MS) {
-        setStreamStatus("degraded");
-        setStreamSource("REST");
-        setDataLatency("delayed");
-        startDegradedPolling();
-      } else {
-        setStreamStatus("reconnecting");
-        setDataLatency("delayed");
-      }
+      setDegradedMode("reconnecting");
 
       reconnectAttemptRef.current += 1;
       const backoff = Math.min(
@@ -496,7 +514,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         connectStream();
       }, backoff);
     };
-  }, [handleStreamMessage, startDegradedPolling, stopDegradedPolling, syncSubscriptions]);
+  }, [handleStreamMessage, setDegradedMode, stopDegradedPolling, syncSubscriptions]);
 
   const closeStream = React.useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -721,35 +739,12 @@ function toMillis(value: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function safeJsonParse(value: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object") {
-      return parsed as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
+function resolveSnapshotLast(currentLast: number, message: StreamMarketMessage): number {
+  if (message.type === "market.trade") {
+    return message.last ?? message.price ?? currentLast;
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value && typeof value === "object") {
-    return value as Record<string, unknown>;
+  if (message.type === "market.aggregate") {
+    return message.last ?? message.close ?? currentLast;
   }
-  return null;
-}
-
-function asString(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  return null;
-}
-
-function asNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
+  return currentLast;
 }
