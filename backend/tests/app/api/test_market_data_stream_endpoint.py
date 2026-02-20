@@ -51,9 +51,13 @@ class FakeStreamHub:
         self.registered_connections: set[str] = set()
         self.unregistered_connections: set[str] = set()
         self._queues: dict[str, asyncio.Queue[dict[str, Any]]] = {}
+        self._status_message: str | None = None
 
     def current_latency(self) -> str:
         return "delayed"
+
+    def current_status_message(self) -> str | None:
+        return self._status_message
 
     async def register_connection(self, *, connection_id: str, user_id: int) -> asyncio.Queue[dict[str, Any]]:
         _ = user_id

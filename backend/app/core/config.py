@@ -1,6 +1,7 @@
 from pathlib import Path
+import secrets
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "dev"
-    app_secret_key: str = "change-me"
+    app_secret_key: str | None = None
     auth_access_token_expire_days: int = 14
 
     massive_api_key: str | None = Field(
@@ -54,6 +55,33 @@ class Settings(BaseSettings):
     email_to: str | None = None
 
     cors_allow_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+    @model_validator(mode="after")
+    def _validate_app_secret_key(self) -> "Settings":
+        normalized = (self.app_secret_key or "").strip()
+        insecure_placeholders = {
+            "change-me",
+            "changeme",
+            "replace-me",
+            "replace-with-strong-random-secret",
+        }
+        is_prod = self.app_env.lower() in {"prod", "production"}
+
+        if not normalized:
+            if is_prod:
+                raise ValueError("APP_SECRET_KEY is required in production")
+            normalized = secrets.token_urlsafe(48)
+
+        if normalized.lower() in insecure_placeholders:
+            if is_prod:
+                raise ValueError("APP_SECRET_KEY must be replaced with a strong random secret in production")
+            normalized = secrets.token_urlsafe(48)
+
+        if len(normalized) < 32:
+            raise ValueError("APP_SECRET_KEY must be at least 32 characters")
+
+        self.app_secret_key = normalized
+        return self
 
     @property
     def database_url(self) -> str:

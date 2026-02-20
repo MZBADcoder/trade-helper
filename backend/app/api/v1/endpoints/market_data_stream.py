@@ -284,10 +284,7 @@ def _status_message_for_connection(*, hub: StockMarketStreamHub) -> str | None:
     if not settings.market_stream_realtime_enabled:
         return delayed_latency_message(delay_minutes=settings.market_stream_delay_minutes)
 
-    current_status_message = getattr(hub, "current_status_message", None)
-    if not callable(current_status_message):
-        return None
-    value = current_status_message()
+    value = hub.current_status_message()
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None

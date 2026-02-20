@@ -54,6 +54,7 @@ class StockMarketStreamHub:
         self._queue_size = max(64, queue_size)
         self._lock = asyncio.Lock()
         self._runtime_lock = asyncio.Lock()
+        self._registry_sync_lock = asyncio.Lock()
         self._connections: dict[str, _ConnectionState] = {}
         self._topic_ref_count: dict[str, int] = {}
         self._registry_refresh_seconds = max(5, registry_refresh_seconds)
@@ -85,7 +86,7 @@ class StockMarketStreamHub:
         async with self._lock:
             self._connections.clear()
             self._topic_ref_count.clear()
-        await self._sync_registry(set())
+        await self._sync_registry()
         await self._stop_runtime()
 
     async def register_connection(
@@ -107,11 +108,10 @@ class StockMarketStreamHub:
             should_start_runtime = len(self._connections) == 1
         if should_start_runtime:
             await self._ensure_runtime()
-            await self._sync_registry(await self._snapshot_topics())
+            await self._sync_registry()
         return queue
 
     async def unregister_connection(self, *, connection_id: str) -> None:
-        remaining_topics: set[str] | None = None
         has_connections = False
         async with self._lock:
             state = self._connections.pop(connection_id, None)
@@ -119,13 +119,17 @@ class StockMarketStreamHub:
                 return
             previous_topics = _build_topics(symbols=state.symbols, channels=state.channels)
             _decrease_topic_refs(self._topic_ref_count, previous_topics)
-            remaining_topics = set(self._topic_ref_count.keys())
             has_connections = bool(self._connections)
 
-        await self._sync_registry(remaining_topics or set())
+        await self._sync_registry()
         if not has_connections:
             self._set_delayed_state()
             await self._stop_runtime()
+            async with self._lock:
+                has_connections_after_stop = bool(self._connections)
+            if has_connections_after_stop:
+                await self._ensure_runtime()
+                await self._sync_registry()
 
     async def set_connection_subscription(
         self,
@@ -160,7 +164,7 @@ class StockMarketStreamHub:
 
         if remaining_topics is not None:
             await self._ensure_runtime()
-            await self._sync_registry(remaining_topics)
+            await self._sync_registry()
 
     async def _run_subscriber(self) -> None:
         if self._event_subscriber is None:
@@ -197,8 +201,7 @@ class StockMarketStreamHub:
 
     async def _run_registry_keepalive(self) -> None:
         while not self._registry_stop_event.is_set():
-            topics = await self._snapshot_topics()
-            await self._sync_registry(topics)
+            await self._sync_registry()
             try:
                 await asyncio.wait_for(
                     self._registry_stop_event.wait(),
@@ -245,16 +248,19 @@ class StockMarketStreamHub:
         async with self._lock:
             return set(self._topic_ref_count.keys())
 
-    async def _sync_registry(self, topics: set[str]) -> None:
+    async def _sync_registry(self) -> None:
         if self._topic_registry is None:
             return
-        try:
-            await self._topic_registry.update_topics(
-                instance_id=self._instance_id,
-                topics=topics,
-            )
-        except Exception:
-            logger.exception("Failed to sync redis topic registry")
+        async with self._registry_sync_lock:
+            # Always sync latest snapshot under lock to avoid stale writes from older callers.
+            latest_topics = await self._snapshot_topics()
+            try:
+                await self._topic_registry.update_topics(
+                    instance_id=self._instance_id,
+                    topics=latest_topics,
+                )
+            except Exception:
+                logger.exception("Failed to sync redis topic registry")
 
     async def _handle_bus_message(self, payload: dict[str, Any]) -> None:
         message_type = str(payload.get("type", "")).strip().lower()

@@ -21,6 +21,13 @@ class FakeTopicRegistry:
         self.deleted_instances.append(instance_id)
 
 
+class SlowSingleTopicRegistry(FakeTopicRegistry):
+    async def update_topics(self, *, instance_id: str, topics: set[str]) -> None:
+        if len(topics) == 1:
+            await asyncio.sleep(0.05)
+        await super().update_topics(instance_id=instance_id, topics=topics)
+
+
 class FlakySubscriber:
     def __init__(self) -> None:
         self.listen_calls = 0
@@ -30,6 +37,12 @@ class FlakySubscriber:
         self.listen_calls += 1
         if self.listen_calls == 1:
             raise RuntimeError("subscriber failed")
+        await stop_event.wait()
+
+
+class PassiveSubscriber:
+    async def listen(self, *, stop_event: asyncio.Event, on_message: object) -> None:
+        _ = on_message
         await stop_event.wait()
 
 
@@ -151,6 +164,41 @@ def test_stream_hub_syncs_topics_to_registry() -> None:
 
         assert any(instance_id == "gw-registry" and "Q.AAPL" in topics for instance_id, topics in topic_registry.updates)
         assert "gw-registry" in topic_registry.deleted_instances
+
+    asyncio.run(scenario())
+
+
+def test_stream_hub_registry_sync_uses_latest_topics_under_concurrency() -> None:
+    async def scenario() -> None:
+        topic_registry = SlowSingleTopicRegistry()
+        hub = StockMarketStreamHub(
+            event_subscriber=None,
+            topic_registry=topic_registry,
+            instance_id="gw-registry-race",
+            max_symbols_per_connection=100,
+            queue_size=32,
+            registry_refresh_seconds=60,
+        )
+        await hub.register_connection(connection_id="c1", user_id=1)
+        await hub.register_connection(connection_id="c2", user_id=2)
+
+        first = asyncio.create_task(
+            hub.set_connection_subscription(
+                connection_id="c1",
+                symbols={"AAPL"},
+                channels={"quote"},
+            )
+        )
+        await asyncio.sleep(0.01)
+        await hub.set_connection_subscription(
+            connection_id="c2",
+            symbols={"MSFT"},
+            channels={"quote"},
+        )
+        await first
+
+        assert topic_registry.updates[-1][1] == {"Q.AAPL", "Q.MSFT"}
+        await hub.shutdown()
 
     asyncio.run(scenario())
 
@@ -309,6 +357,41 @@ def test_stream_hub_delayed_mode_blocks_quote_and_forces_delayed_status() -> Non
             }
         )
         assert queue.empty()
+        await hub.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_stream_hub_keeps_runtime_when_connection_joins_during_unregister() -> None:
+    async def scenario() -> None:
+        subscriber = PassiveSubscriber()
+        hub = StockMarketStreamHub(
+            event_subscriber=subscriber,
+            topic_registry=None,
+            instance_id="gw-race",
+            max_symbols_per_connection=100,
+            queue_size=32,
+        )
+        await hub.register_connection(connection_id="c1", user_id=1)
+        await hub.set_connection_subscription(
+            connection_id="c1",
+            symbols={"AAPL"},
+            channels={"quote"},
+        )
+
+        original_stop_runtime = hub._stop_runtime
+
+        async def _stop_runtime_with_interleave() -> None:
+            await hub.register_connection(connection_id="c2", user_id=2)
+            await original_stop_runtime()
+
+        hub._stop_runtime = _stop_runtime_with_interleave
+        await hub.unregister_connection(connection_id="c1")
+
+        assert "c2" in hub._connections
+        assert hub._listener_task is not None
+        assert not hub._listener_task.done()
+        hub._stop_runtime = original_stop_runtime
         await hub.shutdown()
 
     asyncio.run(scenario())

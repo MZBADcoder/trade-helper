@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from app.application.market_data.errors import MarketDataRangeTooLargeError
 from app.application.market_data import service as market_data_service_module
 from app.application.market_data.service import MarketDataApplicationService
 from app.domain.market_data.schemas import MarketBar
@@ -468,6 +469,120 @@ def test_enforce_minute_retention_skips_delete_when_trade_days_insufficient() ->
     assert repo.deleted_minute_cutoff is None
     assert repo.deleted_minute_agg_cutoff is None
     assert uow.commits == 0
+
+
+def test_list_bars_rejects_oversized_range_when_only_start_date_is_provided() -> None:
+    repo = FakeMarketDataRepository()
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=FailMassiveClient(),
+    )
+
+    with pytest.raises(MarketDataRangeTooLargeError):
+        service.list_bars(
+            ticker="AAPL",
+            timespan="minute",
+            multiplier=1,
+            start_date=date(2000, 1, 1),
+            end_date=None,
+            enforce_range_limit=True,
+        )
+
+
+def test_list_bars_allows_default_minute_range_without_explicit_bounds() -> None:
+    repo = FakeMarketDataRepository()
+    repo.minute_coverage = (
+        datetime(2000, 1, 1, tzinfo=timezone.utc),
+        datetime(2100, 1, 1, tzinfo=timezone.utc),
+    )
+    repo.minute_bars = [
+        _bar(
+            ticker="AAPL",
+            timespan="minute",
+            multiplier=1,
+            start_at=datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc),
+        )
+    ]
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=FailMassiveClient(),
+    )
+
+    bars = service.list_bars(
+        ticker="AAPL",
+        timespan="minute",
+        multiplier=1,
+        start_date=None,
+        end_date=None,
+        enforce_range_limit=True,
+    )
+
+    assert isinstance(bars, list)
+
+
+def test_list_bars_allows_to_only_minute_range_with_default_start() -> None:
+    repo = FakeMarketDataRepository()
+    repo.minute_coverage = (
+        datetime(2000, 1, 1, tzinfo=timezone.utc),
+        datetime(2100, 1, 1, tzinfo=timezone.utc),
+    )
+    repo.minute_bars = [
+        _bar(
+            ticker="AAPL",
+            timespan="minute",
+            multiplier=1,
+            start_at=datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc),
+        )
+    ]
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=FailMassiveClient(),
+    )
+
+    bars = service.list_bars(
+        ticker="AAPL",
+        timespan="minute",
+        multiplier=1,
+        start_date=None,
+        end_date=date(2026, 2, 10),
+        enforce_range_limit=True,
+    )
+
+    assert isinstance(bars, list)
+
+
+def test_prefetch_default_does_not_apply_request_range_limit() -> None:
+    repo = FakeMarketDataRepository()
+    repo.day_coverage = (
+        datetime(2000, 1, 1, tzinfo=timezone.utc),
+        datetime(2100, 1, 1, tzinfo=timezone.utc),
+    )
+    repo.minute_coverage = (
+        datetime(2000, 1, 1, tzinfo=timezone.utc),
+        datetime(2100, 1, 1, tzinfo=timezone.utc),
+    )
+    repo.day_bars = [
+        _bar(
+            ticker="AAPL",
+            timespan="day",
+            multiplier=1,
+            start_at=datetime(2026, 2, 10, 0, 0, tzinfo=timezone.utc),
+        )
+    ]
+    repo.minute_bars = [
+        _bar(
+            ticker="AAPL",
+            timespan="minute",
+            multiplier=1,
+            start_at=datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc),
+        )
+    ]
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=FailMassiveClient(),
+    )
+
+    service.prefetch_default(ticker="AAPL")
 
 
 def _filter_by_range(

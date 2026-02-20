@@ -121,6 +121,7 @@ class FakeMarketDataService:
         self.list_snapshots_calls: list[list[str]] = []
         self.bars_data_source = "DB_AGG_MIXED"
         self.bars_partial_range = False
+        self.bars_error: Exception | None = None
 
     def list_snapshots(self, *, tickers: list[str]) -> list[FakeSnapshot]:
         self.list_snapshots_calls.append(tickers)
@@ -150,7 +151,9 @@ class FakeMarketDataService:
         start_date: date | None = None,
         end_date: date | None = None,
         limit: int | None = None,
+        enforce_range_limit: bool = False,
     ) -> list[MarketBar]:
+        _ = enforce_range_limit
         self.list_bars_calls.append(
             {
                 "ticker": ticker,
@@ -187,7 +190,10 @@ class FakeMarketDataService:
         start_date: date | None = None,
         end_date: date | None = None,
         limit: int | None = None,
+        enforce_range_limit: bool = False,
     ) -> FakeBarsResult:
+        if self.bars_error is not None:
+            raise self.bars_error
         bars = self.list_bars(
             ticker=ticker,
             timespan=timespan,
@@ -195,6 +201,7 @@ class FakeMarketDataService:
             start_date=start_date,
             end_date=end_date,
             limit=limit,
+            enforce_range_limit=enforce_range_limit,
         )
         return FakeBarsResult(
             bars=bars,
