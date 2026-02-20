@@ -44,12 +44,15 @@ export function TerminalMarketWatch() {
     streamStatus,
     streamSource,
     dataLatency,
+    realtimeEnabled,
+    delayMinutes,
     lastSyncAt,
     lastError
   } = useTerminalMarketWatch();
 
   const streamLabel = streamStatusLabel(streamStatus);
   const streamClass = streamStatusClass(streamStatus);
+  const delayedHintLabel = `Delayed by ${delayMinutes} minutes`;
 
   return (
     <main className="terminalPage terminalPageV2">
@@ -63,6 +66,7 @@ export function TerminalMarketWatch() {
           <span className="pill">Watchlist: {watchlist.length}</span>
           <span className="pill">Selected: {activeTicker ?? "-"}</span>
           <span className={`pill statusPill ${streamClass}`}>Stream: {streamLabel}</span>
+          {!realtimeEnabled ? <span className="pill statusDegraded">{delayedHintLabel}</span> : null}
         </div>
       </section>
 
@@ -239,6 +243,7 @@ export function TerminalMarketWatch() {
           <span className={`statusBadge ${streamClass}`}>{streamLabel}</span>
           <span className="statusField">Source: {streamSource}</span>
           <span className="statusField">Latency: {dataLatency}</span>
+          {!realtimeEnabled ? <span className="statusField statusDegraded">{delayedHintLabel}</span> : null}
           <span className="statusField">Last Sync: {formatDateTime(lastSyncAt)}</span>
           <span className={`statusField ${lastError ? "statusFieldWarn" : ""}`}>
             Last Error: {lastError ? shrinkText(lastError, 96) : "-"}

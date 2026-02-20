@@ -58,6 +58,8 @@ function createViewModel(
     streamStatus: "connected",
     streamSource: "REST",
     dataLatency: "delayed",
+    realtimeEnabled: true,
+    delayMinutes: 15,
     lastSyncAt: null,
     lastError: null,
     ...overrides
@@ -92,5 +94,18 @@ describe("TerminalMarketWatch", () => {
     render(<TerminalMarketWatch />);
 
     expect(screen.getByText("Bars: -")).toBeTruthy();
+  });
+
+  it("shows delayed hint when realtime is disabled", () => {
+    useTerminalMarketWatchMock.mockReturnValue(
+      createViewModel({
+        realtimeEnabled: false,
+        delayMinutes: 15
+      })
+    );
+
+    render(<TerminalMarketWatch />);
+
+    expect(screen.getAllByText("Delayed by 15 minutes").length).toBeGreaterThan(0);
   });
 });

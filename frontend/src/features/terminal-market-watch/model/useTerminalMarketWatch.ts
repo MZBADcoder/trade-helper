@@ -27,13 +27,22 @@ export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
   { key: "month", label: "Month" }
 ];
 
-const STREAM_CHANNELS = ["trade", "quote", "aggregate"];
+const STREAM_CHANNELS_REALTIME = ["trade", "quote", "aggregate"];
+const STREAM_CHANNELS_DELAYED = ["trade", "aggregate"];
 const SNAPSHOT_POLL_INTERVAL_MS = 4_000;
 const BARS_POLL_INTERVAL_MS = 20_000;
 const RECONNECT_MAX_DELAY_MS = 10_000;
+const DEFAULT_MARKET_DELAY_MINUTES = 15;
+
+const MARKET_REALTIME_CONFIG = resolveMarketRealtimeConfig({
+  realtimeEnabled: import.meta.env.VITE_MARKET_REALTIME_ENABLED,
+  delayMinutes: import.meta.env.VITE_MARKET_DELAY_MINUTES
+});
 
 export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const { token, user } = useSession();
+  const { realtimeEnabled, delayMinutes } = MARKET_REALTIME_CONFIG;
+  const streamChannels = React.useMemo(() => streamChannelsForRealtime(realtimeEnabled), [realtimeEnabled]);
 
   const [watchlist, setWatchlist] = React.useState<WatchlistItem[]>([]);
   const [watchlistBusy, setWatchlistBusy] = React.useState(false);
@@ -339,7 +348,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           JSON.stringify({
             action: "unsubscribe",
             symbols: toUnsubscribe,
-            channels: STREAM_CHANNELS
+            channels: streamChannels
           })
         );
       }
@@ -349,7 +358,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           JSON.stringify({
             action: "subscribe",
             symbols: toSubscribe,
-            channels: STREAM_CHANNELS
+            channels: streamChannels
           })
         );
       }
@@ -358,7 +367,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     } catch {
       setLastError("订阅更新失败，等待连接恢复后重试。");
     }
-  }, []);
+  }, [streamChannels]);
 
   const setDegradedMode = React.useCallback(
     (status: StreamStatus = "degraded") => {
@@ -372,21 +381,22 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   const applySystemStatus = React.useCallback(
     (message: StreamStatusMessage) => {
-      if (message.latency) {
+      if (realtimeEnabled && message.latency) {
         setDataLatency(message.latency);
       }
+      if (!realtimeEnabled) {
+        setDataLatency("delayed");
+      }
 
-      const isRealtime =
-        message.latency === "real-time" && (message.connectionState === null || message.connectionState === "connected");
-      if (isRealtime) {
+      if (shouldStopDegradedPollingOnStatus(message, realtimeEnabled)) {
         stopDegradedPolling();
         setStreamStatus("connected");
         setStreamSource("WS");
-        setDataLatency("real-time");
+        setDataLatency(realtimeEnabled ? "real-time" : "delayed");
         return;
       }
 
-      if (message.connectionState === "connected" && message.latency !== "delayed") {
+      if (realtimeEnabled && message.connectionState === "connected" && message.latency !== "delayed") {
         return;
       }
 
@@ -396,7 +406,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         setLastError(message.message);
       }
     },
-    [setDegradedMode, stopDegradedPolling]
+    [realtimeEnabled, setDegradedMode, stopDegradedPolling]
   );
 
   const handleStreamMessage = React.useCallback(
@@ -426,9 +436,13 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         return;
       }
 
+      if (shouldIgnoreMarketMessage(message, realtimeEnabled)) {
+        return;
+      }
+
       applyStreamMarketMessage(message);
     },
-    [applyStreamMarketMessage, applySystemStatus, setDegradedMode]
+    [applyStreamMarketMessage, applySystemStatus, realtimeEnabled, setDegradedMode]
   );
 
   const connectStream = React.useCallback(() => {
@@ -665,9 +679,45 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     streamStatus,
     streamSource,
     dataLatency,
+    realtimeEnabled,
+    delayMinutes,
     lastSyncAt,
     lastError
   };
+}
+
+type MarketRealtimeConfig = {
+  realtimeEnabled: boolean;
+  delayMinutes: number;
+};
+
+type MarketRealtimeConfigEnv = {
+  realtimeEnabled?: string;
+  delayMinutes?: string;
+};
+
+export function resolveMarketRealtimeConfig(env: MarketRealtimeConfigEnv): MarketRealtimeConfig {
+  const realtimeEnabled = parseEnvBoolean(env.realtimeEnabled, true);
+  const delayMinutes = parsePositiveInt(env.delayMinutes, DEFAULT_MARKET_DELAY_MINUTES);
+  return { realtimeEnabled, delayMinutes };
+}
+
+export function streamChannelsForRealtime(realtimeEnabled: boolean): string[] {
+  return realtimeEnabled ? STREAM_CHANNELS_REALTIME : STREAM_CHANNELS_DELAYED;
+}
+
+export function shouldIgnoreMarketMessage(message: StreamMarketMessage, realtimeEnabled: boolean): boolean {
+  return !realtimeEnabled && message.type === "market.quote";
+}
+
+export function shouldStopDegradedPollingOnStatus(
+  message: StreamStatusMessage,
+  realtimeEnabled: boolean
+): boolean {
+  if (!realtimeEnabled) {
+    return message.connectionState === "connected";
+  }
+  return message.latency === "real-time" && (message.connectionState === null || message.connectionState === "connected");
 }
 
 function dateOffset(days: number): string {
@@ -747,4 +797,25 @@ function resolveSnapshotLast(currentLast: number, message: StreamMarketMessage):
     return message.last ?? message.close ?? currentLast;
   }
   return currentLast;
+}
+
+function parseEnvBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) {
+    return fallback;
+  }
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
 }
