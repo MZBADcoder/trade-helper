@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     market_stream_registry_ttl_seconds: int = 30
     market_stream_registry_refresh_seconds: int = 10
     market_stream_realtime_reconcile_interval_seconds: int = 2
+    market_stream_realtime_enabled: bool = True
+    market_stream_delay_minutes: int = 15
     market_stream_gateway_instance_id: str | None = None
     options_data_enabled: bool = False
 

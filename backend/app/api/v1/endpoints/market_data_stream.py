@@ -12,6 +12,11 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from app.api.deps import get_auth_service, get_market_stream_hub, get_watchlist_service
 from app.application.auth.service import AuthApplicationService
 from app.application.market_data.stream_hub import StockMarketStreamHub
+from app.application.market_data.stream_policy import (
+    allowed_stream_channels,
+    default_stream_channels,
+    delayed_latency_message,
+)
 from app.application.market_data.stream_session import MarketStreamSession, parse_stream_action
 from app.application.watchlist.service import WatchlistApplicationService
 from app.core.config import settings
@@ -49,13 +54,16 @@ async def market_data_stream(
         ping_interval_seconds=settings.market_stream_ping_interval_seconds,
         ping_timeout_seconds=settings.market_stream_ping_timeout_seconds,
         ping_max_misses=settings.market_stream_ping_max_misses,
+        allowed_channels=allowed_stream_channels(realtime_enabled=settings.market_stream_realtime_enabled),
+        default_channels=default_stream_channels(realtime_enabled=settings.market_stream_realtime_enabled),
     )
 
     await _send_ws_json(
         websocket,
         payload=_system_status(
-            latency=hub.current_latency(),
-            connection_state="connected",
+            latency="delayed" if not settings.market_stream_realtime_enabled else hub.current_latency(),
+            connection_state="disabled" if not settings.market_stream_realtime_enabled else "connected",
+            message=_status_message_for_connection(hub=hub),
         ),
         send_lock=send_lock,
     )
@@ -225,15 +233,24 @@ def _system_ping() -> dict[str, object]:
     }
 
 
-def _system_status(*, latency: str, connection_state: str) -> dict[str, object]:
+def _system_status(
+    *,
+    latency: str,
+    connection_state: str,
+    message: str | None = None,
+) -> dict[str, object]:
+    data: dict[str, object] = {
+        "latency": latency,
+        "connection_state": connection_state,
+    }
+    if message:
+        data["message"] = message
+
     return {
         "type": "system.status",
         "ts": _utc_now_iso(),
         "source": "WS",
-        "data": {
-            "latency": latency,
-            "connection_state": connection_state,
-        },
+        "data": data,
     }
 
 
@@ -261,3 +278,16 @@ async def _send_ws_json(
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _status_message_for_connection(*, hub: StockMarketStreamHub) -> str | None:
+    if not settings.market_stream_realtime_enabled:
+        return delayed_latency_message(delay_minutes=settings.market_stream_delay_minutes)
+
+    current_status_message = getattr(hub, "current_status_message", None)
+    if not callable(current_status_message):
+        return None
+    value = current_status_message()
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None

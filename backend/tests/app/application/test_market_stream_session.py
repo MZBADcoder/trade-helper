@@ -42,6 +42,26 @@ def test_session_apply_action_enforces_watchlist_and_symbol_limit() -> None:
     assert limited.error.code == "STREAM_SUBSCRIPTION_LIMIT_EXCEEDED"
 
 
+def test_session_rejects_channel_not_allowed_in_delayed_mode() -> None:
+    session = MarketStreamSession(
+        max_symbols=5,
+        ping_interval_seconds=20,
+        ping_timeout_seconds=10,
+        ping_max_misses=2,
+        allowed_channels={"trade", "aggregate"},
+        default_channels={"trade", "aggregate"},
+        now=0.0,
+    )
+    assert session.channels == {"trade", "aggregate"}
+
+    parsed = parse_stream_action('{"action":"subscribe","symbols":["AAPL"],"channels":["quote"]}')
+    assert parsed is not None
+    outcome = session.apply_action(parsed, allowed_symbols={"AAPL"}, now=1.0)
+    assert outcome.error is not None
+    assert outcome.error.code == "STREAM_CHANNEL_NOT_ALLOWED"
+    assert outcome.channels == {"trade", "aggregate"}
+
+
 def test_session_heartbeat_closes_after_max_misses() -> None:
     session = MarketStreamSession(
         max_symbols=100,

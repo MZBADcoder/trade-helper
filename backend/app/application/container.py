@@ -8,6 +8,11 @@ from app.application.auth.service import AuthApplicationService
 from app.application.market_data.realtime_publisher import StockMarketRealtimePublisher
 from app.application.market_data.service import MarketDataApplicationService
 from app.application.market_data.stream_hub import StockMarketStreamHub
+from app.application.market_data.stream_policy import (
+    allowed_stream_channels,
+    default_stream_channels,
+    normalized_delay_minutes,
+)
 from app.application.options.service import OptionsApplicationService
 from app.application.watchlist.service import WatchlistApplicationService
 from app.core.config import settings
@@ -60,9 +65,23 @@ def build_auth_service() -> AuthApplicationService:
 
 @lru_cache
 def _massive_stocks_stream_client() -> MassiveStocksWebSocketClient | None:
+    if not settings.market_stream_realtime_enabled:
+        return None
     if not settings.massive_api_key:
         return None
     return MassiveStocksWebSocketClient(api_key=settings.massive_api_key)
+
+
+def _market_stream_allowed_channels() -> set[str]:
+    return allowed_stream_channels(realtime_enabled=settings.market_stream_realtime_enabled)
+
+
+def _market_stream_default_channels() -> set[str]:
+    return default_stream_channels(realtime_enabled=settings.market_stream_realtime_enabled)
+
+
+def _market_stream_delay_minutes() -> int:
+    return normalized_delay_minutes(settings.market_stream_delay_minutes)
 
 
 @lru_cache
@@ -106,6 +125,10 @@ def _market_stream_hub() -> StockMarketStreamHub:
         max_symbols_per_connection=settings.market_stream_max_symbols_per_connection,
         queue_size=settings.market_stream_queue_size,
         registry_refresh_seconds=settings.market_stream_registry_refresh_seconds,
+        allowed_channels=_market_stream_allowed_channels(),
+        default_channels=_market_stream_default_channels(),
+        realtime_enabled=settings.market_stream_realtime_enabled,
+        delay_minutes=_market_stream_delay_minutes(),
     )
 
 
@@ -120,6 +143,8 @@ def _stock_market_realtime_publisher() -> StockMarketRealtimePublisher:
         event_publisher=_redis_market_event_publisher(),
         topic_registry=_redis_market_topic_registry(),
         reconcile_interval_seconds=settings.market_stream_realtime_reconcile_interval_seconds,
+        realtime_enabled=settings.market_stream_realtime_enabled,
+        delay_minutes=_market_stream_delay_minutes(),
     )
 
 

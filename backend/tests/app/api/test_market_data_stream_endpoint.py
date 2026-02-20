@@ -143,6 +143,22 @@ def test_stream_accepts_cookie_token_with_allowed_origin() -> None:
             assert status_payload["type"] == "system.status"
 
 
+def test_stream_status_reports_delayed_message_when_realtime_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "market_stream_realtime_enabled", False)
+    monkeypatch.setattr(settings, "market_stream_delay_minutes", 15)
+
+    client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
+    with client:
+        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+            status_payload = websocket.receive_json()
+            assert status_payload["type"] == "system.status"
+            assert status_payload["data"]["latency"] == "delayed"
+            assert status_payload["data"]["connection_state"] == "disabled"
+            assert status_payload["data"]["message"] == "delayed 15min"
+
+
 def test_stream_rejects_invalid_token() -> None:
     client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
@@ -169,6 +185,29 @@ def test_stream_enforces_watchlist_permissions() -> None:
             error_payload = websocket.receive_json()
             assert error_payload["type"] == "system.error"
             assert error_payload["data"]["code"] == "STREAM_SYMBOL_NOT_ALLOWED"
+            assert stream_hub.subscription_calls == []
+
+
+def test_stream_rejects_quote_channel_when_realtime_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "market_stream_realtime_enabled", False)
+    monkeypatch.setattr(settings, "market_stream_delay_minutes", 15)
+
+    client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
+    with client:
+        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+            _ = websocket.receive_json()
+            websocket.send_json(
+                {
+                    "action": "subscribe",
+                    "symbols": ["AAPL"],
+                    "channels": ["quote"],
+                }
+            )
+            error_payload = websocket.receive_json()
+            assert error_payload["type"] == "system.error"
+            assert error_payload["data"]["code"] == "STREAM_CHANNEL_NOT_ALLOWED"
             assert stream_hub.subscription_calls == []
 
 

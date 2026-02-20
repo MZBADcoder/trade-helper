@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
+from app.application.market_data.stream_policy import delayed_latency_message, normalized_delay_minutes
 from app.application.market_data.stream_event_mapper import (
     build_system_error,
     build_system_status,
@@ -24,11 +25,16 @@ class StockMarketRealtimePublisher:
         event_publisher: RedisMarketEventPublisher,
         topic_registry: RedisMarketTopicRegistry,
         reconcile_interval_seconds: int = 2,
+        realtime_enabled: bool = True,
+        delay_minutes: int = 15,
     ) -> None:
         self._upstream_client = upstream_client
         self._event_publisher = event_publisher
         self._topic_registry = topic_registry
         self._reconcile_interval = max(1, reconcile_interval_seconds)
+        self._realtime_enabled = bool(realtime_enabled)
+        self._delay_minutes = normalized_delay_minutes(delay_minutes)
+        self._delayed_message = delayed_latency_message(delay_minutes=self._delay_minutes)
         self._upstream_running = False
 
         if self._upstream_client is not None:
@@ -39,6 +45,17 @@ class StockMarketRealtimePublisher:
 
     async def run(self, *, stop_event: asyncio.Event) -> None:
         try:
+            if not self._realtime_enabled:
+                await self._event_publisher.publish(
+                    build_system_status(
+                        latency="delayed",
+                        connection_state="disabled",
+                        message=self._delayed_message,
+                    )
+                )
+                await stop_event.wait()
+                return
+
             if self._upstream_client is None:
                 await self._event_publisher.publish(
                     build_system_error(
@@ -68,7 +85,7 @@ class StockMarketRealtimePublisher:
         await self._event_publisher.close()
 
     async def _reconcile_upstream(self, topics: set[str]) -> None:
-        if self._upstream_client is None:
+        if self._upstream_client is None or not self._realtime_enabled:
             return
 
         if topics:
@@ -90,6 +107,8 @@ class StockMarketRealtimePublisher:
             )
 
     async def _handle_upstream_events(self, events: list[dict[str, Any]]) -> None:
+        if not self._realtime_enabled:
+            return
         for event in events:
             payload = map_massive_event_to_market_message(event)
             if payload is None:
@@ -97,6 +116,15 @@ class StockMarketRealtimePublisher:
             await self._event_publisher.publish(payload)
 
     async def _handle_upstream_status(self, state: str, message: str | None) -> None:
+        if not self._realtime_enabled:
+            await self._event_publisher.publish(
+                build_system_status(
+                    latency="delayed",
+                    connection_state="disabled",
+                    message=self._delayed_message,
+                )
+            )
+            return
         latency = "real-time" if state == "connected" else "delayed"
         await self._event_publisher.publish(
             build_system_status(

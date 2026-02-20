@@ -5,7 +5,8 @@ import json
 import re
 import time
 
-_VALID_CHANNELS = {"quote", "trade", "aggregate"}
+from app.application.market_data.stream_policy import SUPPORTED_STREAM_CHANNELS
+
 _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 
 
@@ -45,6 +46,8 @@ class MarketStreamSession:
         ping_interval_seconds: int,
         ping_timeout_seconds: int,
         ping_max_misses: int,
+        allowed_channels: set[str] | None = None,
+        default_channels: set[str] | None = None,
         now: float | None = None,
     ) -> None:
         base_now = now if now is not None else time.monotonic()
@@ -54,8 +57,15 @@ class MarketStreamSession:
         self._ping_max_misses = max(1, ping_max_misses)
         self._heartbeat_check_interval = min(1.0, max(0.2, self._ping_timeout / 2))
 
+        self._allowed_channels = _normalize_supported_channels(allowed_channels or SUPPORTED_STREAM_CHANNELS)
+        configured_default_channels = default_channels if default_channels is not None else self._allowed_channels
+        self._default_channels = _normalize_default_channels(
+            configured_default_channels,
+            allowed_channels=self._allowed_channels,
+        )
+
         self._desired_symbols: set[str] = set()
-        self._desired_channels: set[str] = {"quote", "trade", "aggregate"}
+        self._desired_channels: set[str] = set(self._default_channels)
 
         self._last_client_ping_at = base_now
         self._last_server_ping_at: float | None = None
@@ -79,7 +89,31 @@ class MarketStreamSession:
         now: float | None = None,
     ) -> StreamActionOutcome:
         if action.channels:
-            self._desired_channels = set(action.channels)
+            try:
+                requested_channels = _normalize_supported_channels(action.channels)
+            except ValueError as exc:
+                return StreamActionOutcome(
+                    changed=False,
+                    symbols=self.symbols,
+                    channels=self.channels,
+                    error=StreamActionError(
+                        code=str(exc),
+                        message="invalid stream channels",
+                    ),
+                )
+            not_allowed_channels = requested_channels.difference(self._allowed_channels)
+            if not_allowed_channels:
+                blocked = ",".join(sorted(not_allowed_channels))
+                return StreamActionOutcome(
+                    changed=False,
+                    symbols=self.symbols,
+                    channels=self.channels,
+                    error=StreamActionError(
+                        code="STREAM_CHANNEL_NOT_ALLOWED",
+                        message=f"channels not allowed in current mode: {blocked}",
+                    ),
+                )
+            self._desired_channels = requested_channels
 
         if action.action in {"ping", "pong"}:
             self.touch_client_ping(now=now)
@@ -234,6 +268,26 @@ def _parse_channels(raw: object) -> set[str] | None:
     normalized = {str(value).strip().lower() for value in raw if str(value).strip()}
     if not normalized:
         return set()
-    if not normalized.issubset(_VALID_CHANNELS):
+    if not normalized.issubset(SUPPORTED_STREAM_CHANNELS):
         return None
+    return normalized
+
+
+def _normalize_supported_channels(channels: set[str]) -> set[str]:
+    normalized = {str(value).strip().lower() for value in channels if str(value).strip()}
+    if not normalized:
+        raise ValueError("STREAM_CHANNEL_NOT_ALLOWED")
+    if not normalized.issubset(SUPPORTED_STREAM_CHANNELS):
+        raise ValueError("STREAM_INVALID_ACTION")
+    return normalized
+
+
+def _normalize_default_channels(
+    channels: set[str],
+    *,
+    allowed_channels: set[str],
+) -> set[str]:
+    normalized = _normalize_supported_channels(channels)
+    if not normalized.issubset(allowed_channels):
+        raise ValueError("STREAM_CHANNEL_NOT_ALLOWED")
     return normalized

@@ -240,6 +240,80 @@ def test_stream_hub_restarts_subscriber_after_crash() -> None:
     asyncio.run(scenario())
 
 
+def test_stream_hub_delayed_mode_blocks_quote_and_forces_delayed_status() -> None:
+    async def scenario() -> None:
+        hub = StockMarketStreamHub(
+            event_subscriber=None,
+            topic_registry=None,
+            instance_id="gw-delayed",
+            max_symbols_per_connection=100,
+            queue_size=32,
+            allowed_channels={"trade", "aggregate"},
+            default_channels={"trade", "aggregate"},
+            realtime_enabled=False,
+            delay_minutes=15,
+        )
+
+        queue = await hub.register_connection(connection_id="c1", user_id=1)
+        await hub.set_connection_subscription(
+            connection_id="c1",
+            symbols={"AAPL"},
+            channels=set(),
+        )
+
+        with pytest.raises(ValueError, match="STREAM_CHANNEL_NOT_ALLOWED"):
+            await hub.set_connection_subscription(
+                connection_id="c1",
+                symbols={"AAPL"},
+                channels={"quote"},
+            )
+
+        await hub._handle_bus_message(
+            {
+                "type": "system.status",
+                "ts": "2026-02-19T13:00:00Z",
+                "source": "WS",
+                "data": {
+                    "latency": "real-time",
+                    "connection_state": "connected",
+                },
+            }
+        )
+        status_payload = queue.get_nowait()
+        assert status_payload["data"]["latency"] == "delayed"
+        assert status_payload["data"]["connection_state"] == "disabled"
+        assert status_payload["data"]["message"] == "delayed 15min"
+        assert hub.current_latency() == "delayed"
+
+        await hub._handle_bus_message(
+            {
+                "type": "market.trade",
+                "ts": "2026-02-19T13:00:01Z",
+                "source": "WS",
+                "data": {
+                    "symbol": "AAPL",
+                },
+            }
+        )
+        trade_payload = queue.get_nowait()
+        assert trade_payload["type"] == "market.trade"
+
+        await hub._handle_bus_message(
+            {
+                "type": "market.quote",
+                "ts": "2026-02-19T13:00:02Z",
+                "source": "WS",
+                "data": {
+                    "symbol": "AAPL",
+                },
+            }
+        )
+        assert queue.empty()
+        await hub.shutdown()
+
+    asyncio.run(scenario())
+
+
 async def _wait_until_async(predicate: Callable[[], bool], timeout_seconds: float = 1.0) -> bool:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:

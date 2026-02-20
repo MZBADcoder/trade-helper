@@ -6,10 +6,14 @@ import logging
 import re
 from typing import Any
 
+from app.application.market_data.stream_policy import (
+    SUPPORTED_STREAM_CHANNELS,
+    delayed_latency_message,
+    normalized_delay_minutes,
+)
 from app.infrastructure.streaming.redis_event_bus import RedisMarketEventSubscriber
 from app.infrastructure.streaming.redis_topic_registry import RedisMarketTopicRegistry
 
-_VALID_CHANNELS = {"quote", "trade", "aggregate"}
 _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 _TOPIC_BY_CHANNEL = {
     "quote": ("Q",),
@@ -38,6 +42,10 @@ class StockMarketStreamHub:
         max_symbols_per_connection: int = 100,
         queue_size: int = 512,
         registry_refresh_seconds: int = 10,
+        allowed_channels: set[str] | None = None,
+        default_channels: set[str] | None = None,
+        realtime_enabled: bool = True,
+        delay_minutes: int = 15,
     ) -> None:
         self._event_subscriber = event_subscriber
         self._topic_registry = topic_registry
@@ -49,15 +57,29 @@ class StockMarketStreamHub:
         self._connections: dict[str, _ConnectionState] = {}
         self._topic_ref_count: dict[str, int] = {}
         self._registry_refresh_seconds = max(5, registry_refresh_seconds)
+        self._allowed_channels = _normalize_supported_channels(allowed_channels or SUPPORTED_STREAM_CHANNELS)
+        configured_default_channels = default_channels if default_channels is not None else self._allowed_channels
+        self._default_channels = _normalize_default_channels(
+            configured_default_channels,
+            allowed_channels=self._allowed_channels,
+        )
+        self._realtime_enabled = bool(realtime_enabled)
+        self._delay_minutes = normalized_delay_minutes(delay_minutes)
 
         self._listener_stop_event = asyncio.Event()
         self._listener_task: asyncio.Task[None] | None = None
         self._registry_stop_event = asyncio.Event()
         self._registry_task: asyncio.Task[None] | None = None
         self._latency = "delayed"
+        self._status_message = (
+            delayed_latency_message(delay_minutes=self._delay_minutes) if not self._realtime_enabled else None
+        )
 
     def current_latency(self) -> str:
         return self._latency
+
+    def current_status_message(self) -> str | None:
+        return self._status_message
 
     async def shutdown(self) -> None:
         async with self._lock:
@@ -76,7 +98,7 @@ class StockMarketStreamHub:
         state = _ConnectionState(
             user_id=user_id,
             symbols=set(),
-            channels={"quote", "trade", "aggregate"},
+            channels=set(self._default_channels),
             queue=queue,
         )
         should_start_runtime = False
@@ -102,7 +124,7 @@ class StockMarketStreamHub:
 
         await self._sync_registry(remaining_topics or set())
         if not has_connections:
-            self._latency = "delayed"
+            self._set_delayed_state()
             await self._stop_runtime()
 
     async def set_connection_subscription(
@@ -113,7 +135,11 @@ class StockMarketStreamHub:
         channels: set[str],
     ) -> None:
         normalized_symbols = _normalize_symbols(symbols)
-        normalized_channels = _normalize_channels(channels)
+        normalized_channels = _normalize_channels(
+            channels,
+            allowed_channels=self._allowed_channels,
+            default_channels=self._default_channels,
+        )
         if len(normalized_symbols) > self._max_symbols:
             raise ValueError("STREAM_SUBSCRIPTION_LIMIT_EXCEEDED")
 
@@ -149,12 +175,12 @@ class StockMarketStreamHub:
                 if self._listener_stop_event.is_set():
                     return
                 logger.warning("Market stream redis subscriber stopped unexpectedly, restarting")
-                self._latency = "delayed"
+                self._set_delayed_state()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Market stream redis subscriber crashed")
-                self._latency = "delayed"
+                self._set_delayed_state()
 
             if self._listener_stop_event.is_set():
                 return
@@ -233,11 +259,19 @@ class StockMarketStreamHub:
     async def _handle_bus_message(self, payload: dict[str, Any]) -> None:
         message_type = str(payload.get("type", "")).strip().lower()
         if message_type == "system.status":
-            data = payload.get("data")
-            if isinstance(data, dict):
-                latency = str(data.get("latency", "")).strip().lower()
-                if latency in {"real-time", "delayed"}:
-                    self._latency = latency
+            if self._realtime_enabled:
+                data = payload.get("data")
+                if isinstance(data, dict):
+                    latency = str(data.get("latency", "")).strip().lower()
+                    if latency in {"real-time", "delayed"}:
+                        self._latency = latency
+                    message = data.get("message")
+                    if isinstance(message, str) and message.strip():
+                        self._status_message = message.strip()
+                    else:
+                        self._status_message = None
+            else:
+                payload = self._enforce_delayed_status(payload)
             await self._broadcast(payload)
             return
 
@@ -249,7 +283,7 @@ class StockMarketStreamHub:
             return
 
         channel = message_type.split(".", maxsplit=1)[1]
-        if channel not in _VALID_CHANNELS:
+        if channel not in SUPPORTED_STREAM_CHANNELS or channel not in self._allowed_channels:
             return
         data = payload.get("data")
         if not isinstance(data, dict):
@@ -273,6 +307,24 @@ class StockMarketStreamHub:
         for queue in queues:
             _enqueue_payload(queue, payload)
 
+    def _set_delayed_state(self) -> None:
+        self._latency = "delayed"
+        self._status_message = (
+            delayed_latency_message(delay_minutes=self._delay_minutes) if not self._realtime_enabled else None
+        )
+
+    def _enforce_delayed_status(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._set_delayed_state()
+        data = payload.get("data")
+        normalized_data = dict(data) if isinstance(data, dict) else {}
+        normalized_data["latency"] = "delayed"
+        normalized_data["connection_state"] = "disabled"
+        normalized_data["message"] = delayed_latency_message(delay_minutes=self._delay_minutes)
+        return {
+            **payload,
+            "data": normalized_data,
+        }
+
 
 def _normalize_symbols(symbols: set[str]) -> set[str]:
     normalized: set[str] = set()
@@ -286,12 +338,39 @@ def _normalize_symbols(symbols: set[str]) -> set[str]:
     return normalized
 
 
-def _normalize_channels(channels: set[str]) -> set[str]:
+def _normalize_channels(
+    channels: set[str],
+    *,
+    allowed_channels: set[str],
+    default_channels: set[str],
+) -> set[str]:
     normalized = {str(item).strip().lower() for item in channels if str(item).strip()}
     if not normalized:
-        return {"quote", "trade", "aggregate"}
-    if not normalized.issubset(_VALID_CHANNELS):
+        return set(default_channels)
+    if not normalized.issubset(SUPPORTED_STREAM_CHANNELS):
         raise ValueError("STREAM_INVALID_ACTION")
+    if not normalized.issubset(allowed_channels):
+        raise ValueError("STREAM_CHANNEL_NOT_ALLOWED")
+    return normalized
+
+
+def _normalize_supported_channels(channels: set[str]) -> set[str]:
+    normalized = {str(item).strip().lower() for item in channels if str(item).strip()}
+    if not normalized:
+        raise ValueError("STREAM_CHANNEL_NOT_ALLOWED")
+    if not normalized.issubset(SUPPORTED_STREAM_CHANNELS):
+        raise ValueError("STREAM_INVALID_ACTION")
+    return normalized
+
+
+def _normalize_default_channels(
+    channels: set[str],
+    *,
+    allowed_channels: set[str],
+) -> set[str]:
+    normalized = _normalize_supported_channels(channels)
+    if not normalized.issubset(allowed_channels):
+        raise ValueError("STREAM_CHANNEL_NOT_ALLOWED")
     return normalized
 
 
