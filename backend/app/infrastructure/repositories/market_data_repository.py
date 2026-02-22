@@ -218,25 +218,26 @@ class SqlAlchemyMarketDataRepository:
             )
             for bar in bars
         ]
-        stmt = insert(MarketBarDayModel).values(payload)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["ticker", "trade_date"],
-            set_=_update_columns(
-                stmt,
-                [
-                    "start_at",
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "vwap",
-                    "trades",
-                    "source",
-                ],
-            ),
-        )
-        self._session.execute(stmt)
+        for chunk in _chunk_insert_payload(payload):
+            stmt = insert(MarketBarDayModel).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["ticker", "trade_date"],
+                set_=_update_columns(
+                    stmt,
+                    [
+                        "start_at",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "vwap",
+                        "trades",
+                        "source",
+                    ],
+                ),
+            )
+            self._session.execute(stmt)
 
     def upsert_minute_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
@@ -249,25 +250,26 @@ class SqlAlchemyMarketDataRepository:
             )
             for bar in bars
         ]
-        stmt = insert(MarketBarMinuteModel).values(payload)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["ticker", "start_at"],
-            set_=_update_columns(
-                stmt,
-                [
-                    "trade_date",
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "vwap",
-                    "trades",
-                    "source",
-                ],
-            ),
-        )
-        self._session.execute(stmt)
+        for chunk in _chunk_insert_payload(payload):
+            stmt = insert(MarketBarMinuteModel).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["ticker", "start_at"],
+                set_=_update_columns(
+                    stmt,
+                    [
+                        "trade_date",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "vwap",
+                        "trades",
+                        "source",
+                    ],
+                ),
+            )
+            self._session.execute(stmt)
 
     def upsert_minute_agg_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
@@ -280,27 +282,28 @@ class SqlAlchemyMarketDataRepository:
             )
             for bar in bars
         ]
-        stmt = insert(MarketBarMinuteAggModel).values(payload)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["ticker", "multiplier", "bucket_start_at"],
-            set_=_update_columns(
-                stmt,
-                [
-                    "trade_date",
-                    "bucket_end_at",
-                    "is_final",
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "vwap",
-                    "trades",
-                    "source",
-                ],
-            ),
-        )
-        self._session.execute(stmt)
+        for chunk in _chunk_insert_payload(payload):
+            stmt = insert(MarketBarMinuteAggModel).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["ticker", "multiplier", "bucket_start_at"],
+                set_=_update_columns(
+                    stmt,
+                    [
+                        "trade_date",
+                        "bucket_end_at",
+                        "is_final",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "vwap",
+                        "trades",
+                        "source",
+                    ],
+                ),
+            )
+            self._session.execute(stmt)
 
     def delete_minute_bars_before_trade_date(self, *, keep_from_trade_date: date) -> int:
         stmt = delete(MarketBarMinuteModel).where(MarketBarMinuteModel.trade_date < keep_from_trade_date)
@@ -370,6 +373,23 @@ class SqlAlchemyMarketDataRepository:
 
 def _update_columns(stmt, columns: list[str]) -> dict[str, object]:
     return {column: getattr(stmt.excluded, column) for column in columns}
+
+
+_POSTGRES_MAX_BIND_PARAMS = 65535
+_INSERT_PARAM_HEADROOM = 5000
+
+
+def _chunk_insert_payload(payload: list[dict]) -> list[list[dict]]:
+    if not payload:
+        return []
+
+    columns_per_row = len(payload[0])
+    if columns_per_row <= 0:
+        return [payload]
+
+    max_params = max(1, _POSTGRES_MAX_BIND_PARAMS - _INSERT_PARAM_HEADROOM)
+    max_rows = max(1, max_params // columns_per_row)
+    return [payload[i : i + max_rows] for i in range(0, len(payload), max_rows)]
 
 
 def _to_market_trade_date(start_at: datetime) -> date:
