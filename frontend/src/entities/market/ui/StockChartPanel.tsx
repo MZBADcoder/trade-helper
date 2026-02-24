@@ -5,19 +5,46 @@ import { type MarketBar } from "../model/types";
 
 type StockChartPanelProps = {
   ticker: string;
+  timeframe?: string | null;
+  historyCursor?: string | null;
   bars: MarketBar[];
   indicators: IndicatorBundle;
+  hasMoreBefore?: boolean;
+  isLoadingMoreBefore?: boolean;
+  onLoadMoreBefore?: () => Promise<void> | void;
 };
 
 const CHART_WIDTH = 960;
 const PLOT_LEFT = 16;
 const PLOT_RIGHT = 72;
 const PLOT_TOP_BOTTOM = 16;
+const ZOOM_LEVELS = [300, 500, 1000] as const;
 
-export function StockChartPanel({ ticker, bars, indicators }: StockChartPanelProps) {
-  const visibleCount = 90;
-  const visibleBars = bars.slice(-visibleCount);
-  const offset = Math.max(0, bars.length - visibleBars.length);
+export function StockChartPanel({
+  ticker,
+  timeframe,
+  historyCursor,
+  bars,
+  indicators,
+  hasMoreBefore = false,
+  isLoadingMoreBefore = false,
+  onLoadMoreBefore
+}: StockChartPanelProps) {
+  const [zoomIndex, setZoomIndex] = React.useState(0);
+  const [panOffset, setPanOffset] = React.useState(0);
+  const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null);
+  const [showMa20, setShowMa20] = React.useState(true);
+  const [showMa50, setShowMa50] = React.useState(true);
+  const [showBoll, setShowBoll] = React.useState(true);
+  const autoLoadMarkerRef = React.useRef<string | null>(null);
+
+  const visibleCount = ZOOM_LEVELS[zoomIndex];
+  const maxPan = Math.max(0, bars.length - Math.min(visibleCount, bars.length));
+  const clampedPanOffset = clamp(panOffset, 0, maxPan);
+  const windowStart = Math.max(0, bars.length - Math.min(visibleCount, bars.length) - clampedPanOffset);
+  const windowEnd = Math.min(bars.length, windowStart + Math.min(visibleCount, bars.length));
+  const visibleBars = bars.slice(windowStart, windowEnd);
+  const offset = windowStart;
 
   const ma20 = indicators.ma20.slice(offset);
   const ma50 = indicators.ma50.slice(offset);
@@ -32,14 +59,41 @@ export function StockChartPanel({ ticker, bars, indicators }: StockChartPanelPro
   const labels = visibleBars.map((bar) => bar.start_at);
   const timeTicks = buildTimeTicks(visibleBars, 6);
 
-  const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null);
-  const [showMa20, setShowMa20] = React.useState(true);
-  const [showMa50, setShowMa50] = React.useState(true);
-  const [showBoll, setShowBoll] = React.useState(true);
-
   React.useEffect(() => {
     setHoveredIndex(null);
-  }, [bars]);
+  }, [windowStart, windowEnd]);
+
+  React.useEffect(() => {
+    if (panOffset !== clampedPanOffset) {
+      setPanOffset(clampedPanOffset);
+    }
+  }, [clampedPanOffset, panOffset]);
+
+  React.useEffect(() => {
+    setZoomIndex(0);
+    setPanOffset(0);
+    setHoveredIndex(null);
+  }, [ticker, timeframe]);
+
+  React.useEffect(() => {
+    if (!onLoadMoreBefore || !hasMoreBefore || isLoadingMoreBefore) {
+      if (!isLoadingMoreBefore) {
+        autoLoadMarkerRef.current = null;
+      }
+      return;
+    }
+    if (windowStart > 2) {
+      autoLoadMarkerRef.current = null;
+      return;
+    }
+
+    const marker = `${bars.length}:${windowStart}:${timeframe ?? ""}:${historyCursor ?? ""}`;
+    if (autoLoadMarkerRef.current === marker) {
+      return;
+    }
+    autoLoadMarkerRef.current = marker;
+    void onLoadMoreBefore();
+  }, [bars.length, hasMoreBefore, historyCursor, isLoadingMoreBefore, onLoadMoreBefore, timeframe, windowStart]);
 
   if (visibleBars.length < 2) {
     return <div className="muted">Insufficient bars for chart rendering.</div>;
@@ -63,6 +117,16 @@ export function StockChartPanel({ ticker, bars, indicators }: StockChartPanelPro
         onToggleMa20={() => setShowMa20((prev) => !prev)}
         onToggleMa50={() => setShowMa50((prev) => !prev)}
         onToggleBoll={() => setShowBoll((prev) => !prev)}
+        zoomCount={visibleBars.length}
+        canZoomIn={zoomIndex < ZOOM_LEVELS.length - 1}
+        canZoomOut={zoomIndex > 0}
+        onZoomIn={() => setZoomIndex((prev) => Math.min(prev + 1, ZOOM_LEVELS.length - 1))}
+        onZoomOut={() => setZoomIndex((prev) => Math.max(prev - 1, 0))}
+        panOffset={clampedPanOffset}
+        maxPan={maxPan}
+        onPanOffsetChange={setPanOffset}
+        hasMoreBefore={hasMoreBefore}
+        isLoadingMoreBefore={isLoadingMoreBefore}
       />
       <MacdPane
         line={macdLine}
@@ -100,6 +164,16 @@ type PricePaneProps = {
   onToggleMa20: () => void;
   onToggleMa50: () => void;
   onToggleBoll: () => void;
+  zoomCount: number;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  panOffset: number;
+  maxPan: number;
+  onPanOffsetChange: (nextOffset: number) => void;
+  hasMoreBefore: boolean;
+  isLoadingMoreBefore: boolean;
 };
 
 function PricePane({
@@ -117,12 +191,28 @@ function PricePane({
   showBoll,
   onToggleMa20,
   onToggleMa50,
-  onToggleBoll
+  onToggleBoll,
+  zoomCount,
+  canZoomIn,
+  canZoomOut,
+  onZoomIn,
+  onZoomOut,
+  panOffset,
+  maxPan,
+  onPanOffsetChange,
+  hasMoreBefore,
+  isLoadingMoreBefore
 }: PricePaneProps) {
   const width = CHART_WIDTH;
   const height = 310;
   const plotWidth = width - PLOT_LEFT - PLOT_RIGHT;
   const stepX = plotWidth / bars.length;
+  const dragRef = React.useRef<{
+    startX: number;
+    startOffset: number;
+    pointerId: number;
+  } | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
 
   const activeIndex = hoverIndex ?? bars.length - 1;
   const activeBar = bars[activeIndex];
@@ -148,6 +238,36 @@ function PricePane({
   function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
     const x = pointerToChartX(event, width);
     onHoverChange(coordinateToIndex(x, stepX, bars.length));
+
+    const drag = dragRef.current;
+    if (!drag) return;
+    const deltaPx = event.clientX - drag.startX;
+    const barsPerPx = bars.length / Math.max(1, plotWidth);
+    const deltaBars = Math.round(deltaPx * barsPerPx);
+    onPanOffsetChange(drag.startOffset - deltaBars);
+  }
+
+  function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
+    if (maxPan <= 0) return;
+    dragRef.current = {
+      startX: event.clientX,
+      startOffset: panOffset,
+      pointerId: event.pointerId
+    };
+    setIsDragging(true);
+    if (event.currentTarget.setPointerCapture) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePointerUp(event: React.PointerEvent<SVGSVGElement>) {
+    if (dragRef.current && dragRef.current.pointerId === event.pointerId) {
+      dragRef.current = null;
+      setIsDragging(false);
+      if (event.currentTarget.releasePointerCapture) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    }
   }
 
   return (
@@ -175,6 +295,16 @@ function PricePane({
               BOLL
             </button>
           </div>
+          <div className="chartZoomGroup">
+            <button type="button" className="chartZoomBtn" onClick={onZoomOut} disabled={!canZoomOut}>
+              -
+            </button>
+            <span className="chartIndicatorTag">Bars {zoomCount}</span>
+            <button type="button" className="chartZoomBtn" onClick={onZoomIn} disabled={!canZoomIn}>
+              +
+            </button>
+            <span className="chartIndicatorTag">Shift {panOffset}</span>
+          </div>
           <div className="chartIndicatorRow">
             <span className="chartIndicatorTag">{formatDate(activeBar.start_at)}</span>
             <span className="chartIndicatorTag">Price {toPrice(activeBar.close)}</span>
@@ -183,14 +313,19 @@ function PricePane({
             <span className="chartIndicatorTag">BOLL U {toPrice(bollUpper[activeIndex])}</span>
             <span className="chartIndicatorTag">M {toPrice(bollMid[activeIndex])}</span>
             <span className="chartIndicatorTag">L {toPrice(bollLower[activeIndex])}</span>
+            {isLoadingMoreBefore ? <span className="chartIndicatorTag">Loading older...</span> : null}
+            {!isLoadingMoreBefore && hasMoreBefore ? <span className="chartIndicatorTag">Drag left for history</span> : null}
           </div>
         </div>
       </div>
       <svg
-        className="chartSvg chartSvgInteractive"
+        className={`chartSvg chartSvgInteractive ${maxPan > 0 ? "chartSvgDraggable" : ""} ${isDragging ? "chartSvgDragging" : ""}`}
         viewBox={`0 0 ${width} ${height}`}
         onPointerMove={handlePointerMove}
         onPointerLeave={() => onHoverChange(null)}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
         <rect x="0" y="0" width={width} height={height} fill="rgba(5, 10, 18, 0.88)" />
 

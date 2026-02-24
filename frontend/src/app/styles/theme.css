@@ -910,6 +910,12 @@ pre {
   gap: 6px;
 }
 
+.chartZoomGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .chartToggleBtn {
   display: inline-flex;
   align-items: center;
@@ -924,6 +930,25 @@ pre {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+.chartZoomBtn {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 8px;
+  background: rgba(8, 14, 26, 0.82);
+  color: #d6e5fc;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chartZoomBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .chartToggleSwatch {
@@ -976,6 +1001,14 @@ pre {
 
 .chartSvgInteractive {
   cursor: crosshair;
+}
+
+.chartSvgDraggable {
+  cursor: grab;
+}
+
+.chartSvgDragging {
+  cursor: grabbing;
 }
 
 .chartXAxis {

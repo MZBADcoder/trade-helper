@@ -4,6 +4,7 @@ import {
   buildIndicators,
   listMarketBarsWithMeta,
   listMarketSnapshots,
+  type MarketBar,
   type MarketSnapshot
 } from "@/entities/market";
 import { useSession } from "@/entities/session";
@@ -19,6 +20,7 @@ import {
 import { parseStreamEnvelope, type StreamMarketMessage, type StreamStatusMessage } from "./streamProtocol";
 
 export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
+  { key: "1m", label: "1m" },
   { key: "5m", label: "5m" },
   { key: "15m", label: "15m" },
   { key: "60m", label: "60m" },
@@ -33,6 +35,20 @@ const SNAPSHOT_POLL_INTERVAL_MS = 4_000;
 const BARS_POLL_INTERVAL_MS = 20_000;
 const RECONNECT_MAX_DELAY_MS = 10_000;
 const DEFAULT_MARKET_DELAY_MINUTES = 15;
+
+const DETAIL_CACHE_MAX_ENTRIES = 12;
+const DETAIL_CACHE_MAX_TOTAL_BARS = 36_000;
+const INTRADAY_LOOKBACK_DAYS = 10;
+const INTRADAY_LOAD_WINDOW_DAYS_1M = 3;
+const INTRADAY_CHUNK_WINDOW_DAYS_1M = 3;
+const LONG_TERM_LOOKBACK_DAYS = 3650;
+const MARKET_TIME_ZONE = "America/New_York";
+const MARKET_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: MARKET_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
 
 const MARKET_REALTIME_CONFIG = resolveMarketRealtimeConfig({
   realtimeEnabled: import.meta.env.VITE_MARKET_REALTIME_ENABLED,
@@ -51,8 +67,10 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   const [activeTicker, setActiveTicker] = React.useState<string | null>(null);
   const [timeframe, setTimeframe] = React.useState<TimeframeKey>("day");
-  const [detailsByTicker, setDetailsByTicker] = React.useState<Record<string, DetailSnapshot>>({});
+  const [detailsByKey, setDetailsByKey] = React.useState<Record<string, DetailSnapshot>>({});
   const detailsRef = React.useRef<Record<string, DetailSnapshot>>({});
+  const detailLruRef = React.useRef<string[]>([]);
+  const loadMoreInFlightRef = React.useRef<Set<string>>(new Set());
 
   const [snapshotMap, setSnapshotMap] = React.useState<Record<string, MarketSnapshot>>({});
   const snapshotTsRef = React.useRef<Record<string, number>>({});
@@ -64,6 +82,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const [lastError, setLastError] = React.useState<string | null>(null);
 
   const activeTickerRef = React.useRef<string | null>(null);
+  const timeframeRef = React.useRef<TimeframeKey>(timeframe);
   const tokenRef = React.useRef<string | null>(null);
   const desiredSubscriptionsRef = React.useRef<string[]>([]);
 
@@ -79,16 +98,90 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const subscriptionSetRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
-    detailsRef.current = detailsByTicker;
-  }, [detailsByTicker]);
+    detailsRef.current = detailsByKey;
+  }, [detailsByKey]);
 
   React.useEffect(() => {
     activeTickerRef.current = activeTicker;
   }, [activeTicker]);
 
   React.useEffect(() => {
+    timeframeRef.current = timeframe;
+  }, [timeframe]);
+
+  React.useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  const trimDetailCache = React.useCallback(
+    (cache: Record<string, DetailSnapshot>, touchedKey?: string): Record<string, DetailSnapshot> => {
+      let nextOrder = detailLruRef.current.filter((key) => cache[key] !== undefined);
+      if (touchedKey) {
+        nextOrder = nextOrder.filter((key) => key !== touchedKey);
+        nextOrder.push(touchedKey);
+      }
+
+      const nextCache = { ...cache };
+      const totalBars = () =>
+        Object.values(nextCache).reduce((sum, detail) => sum + detail.bars.length, 0);
+
+      let rotateGuard = 0;
+      while (
+        (nextOrder.length > DETAIL_CACHE_MAX_ENTRIES || totalBars() > DETAIL_CACHE_MAX_TOTAL_BARS) &&
+        nextOrder.length > 0
+      ) {
+        const oldest = nextOrder[0];
+        if (oldest === touchedKey && nextOrder.length > 1) {
+          nextOrder.push(nextOrder.shift() as string);
+          rotateGuard += 1;
+          if (rotateGuard > nextOrder.length * 2) break;
+          continue;
+        }
+
+        delete nextCache[oldest];
+        nextOrder.shift();
+      }
+
+      detailLruRef.current = nextOrder;
+      return nextCache;
+    },
+    []
+  );
+
+  const touchDetailKey = React.useCallback((key: string) => {
+    detailLruRef.current = detailLruRef.current.filter((item) => item !== key);
+    detailLruRef.current.push(key);
+  }, []);
+
+  const upsertDetail = React.useCallback(
+    (
+      key: string,
+      updater: (current: DetailSnapshot | undefined) => DetailSnapshot,
+      touch = true
+    ) => {
+      setDetailsByKey((previous) => {
+        const next = {
+          ...previous,
+          [key]: updater(previous[key])
+        };
+        return trimDetailCache(next, touch ? key : undefined);
+      });
+    },
+    [trimDetailCache]
+  );
+
+  const removeDetailsBySymbol = React.useCallback((symbol: string) => {
+    setDetailsByKey((previous) => {
+      const next: Record<string, DetailSnapshot> = {};
+      Object.entries(previous).forEach(([key, detail]) => {
+        if (!isDetailKeyForSymbol(key, symbol)) {
+          next[key] = detail;
+        }
+      });
+      detailLruRef.current = detailLruRef.current.filter((key) => next[key] !== undefined);
+      return next;
+    });
+  }, []);
 
   const mergeSnapshots = React.useCallback((items: MarketSnapshot[], source: "REST" | "WS") => {
     if (!items.length) return;
@@ -118,55 +211,63 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     });
   }, []);
 
-  const applyStreamMarketMessage = React.useCallback((message: StreamMarketMessage) => {
-    const symbol = message.symbol;
-    const eventAt = message.eventTs;
-    const incomingTs = toMillis(eventAt);
-    const knownTs = snapshotTsRef.current[symbol] ?? 0;
-    if (incomingTs < knownTs) {
-      return;
-    }
+  const applyStreamMarketMessage = React.useCallback(
+    (message: StreamMarketMessage) => {
+      const symbol = message.symbol;
+      const eventAt = message.eventTs;
+      const incomingTs = toMillis(eventAt);
+      const knownTs = snapshotTsRef.current[symbol] ?? 0;
+      if (incomingTs < knownTs) {
+        return;
+      }
 
-    snapshotTsRef.current[symbol] = incomingTs;
+      snapshotTsRef.current[symbol] = incomingTs;
 
-    setSnapshotMap((previous) => {
-      const base = previous[symbol] ?? createEmptySnapshot(symbol);
-      const nextLast = resolveSnapshotLast(base.last, message);
-      const nextOpen = message.type === "market.aggregate" ? (message.open ?? base.open) : base.open;
-      const nextHigh = message.type === "market.aggregate" ? (message.high ?? base.high) : base.high;
-      const nextLow = message.type === "market.aggregate" ? (message.low ?? base.low) : base.low;
-      const nextVolume = message.type === "market.aggregate" ? (message.volume ?? base.volume) : base.volume;
+      setSnapshotMap((previous) => {
+        const base = previous[symbol] ?? createEmptySnapshot(symbol);
+        const nextLast = resolveSnapshotLast(base.last, message);
+        const nextOpen = message.type === "market.aggregate" ? (message.open ?? base.open) : base.open;
+        const nextHigh = message.type === "market.aggregate" ? (message.high ?? base.high) : base.high;
+        const nextLow = message.type === "market.aggregate" ? (message.low ?? base.low) : base.low;
+        const nextVolume = message.type === "market.aggregate" ? (message.volume ?? base.volume) : base.volume;
 
-      return {
-        ...previous,
-        [symbol]: {
-          ...base,
-          last: nextLast,
-          open: nextOpen,
-          high: nextHigh,
-          low: nextLow,
-          volume: nextVolume,
-          updated_at: eventAt,
-          source: "WS"
-        }
-      };
-    });
+        return {
+          ...previous,
+          [symbol]: {
+            ...base,
+            last: nextLast,
+            open: nextOpen,
+            high: nextHigh,
+            low: nextLow,
+            volume: nextVolume,
+            updated_at: eventAt,
+            source: "WS"
+          }
+        };
+      });
 
-    setDetailsByTicker((previous) => {
-      const detail = previous[symbol];
-      if (!detail) return previous;
-      return {
-        ...previous,
-        [symbol]: {
-          ...detail,
-          updatedAt: eventAt,
-          source: "WS"
-        }
-      };
-    });
+      setDetailsByKey((previous) => {
+        let changed = false;
+        const next = { ...previous };
 
-    setLastSyncAt(eventAt);
-  }, []);
+        Object.entries(previous).forEach(([key, detail]) => {
+          if (!isDetailKeyForSymbol(key, symbol)) return;
+          changed = true;
+          next[key] = {
+            ...detail,
+            updatedAt: eventAt,
+            source: "WS"
+          };
+        });
+
+        if (!changed) return previous;
+        return trimDetailCache(next);
+      });
+
+      setLastSyncAt(eventAt);
+    },
+    [trimDetailCache]
+  );
 
   const refreshWatchlist = React.useCallback(async () => {
     if (!token) return;
@@ -223,74 +324,229 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       if (!token) return;
 
       const symbol = normalizeSymbol(ticker);
-      const existing = detailsRef.current[symbol];
-      const isSameTimeframe = existing?.timeframe === timeframe;
+      const activeTimeframe = timeframeRef.current;
+      const cacheKey = buildDetailCacheKey(symbol, activeTimeframe);
+      const query = marketQueryForTimeframe(activeTimeframe);
+      const existing = detailsRef.current[cacheKey];
 
-      if (!force && isSameTimeframe && existing?.bars.length) {
+      if (!force && existing?.bars.length) {
+        touchDetailKey(cacheKey);
         return;
       }
 
-      setDetailsByTicker((previous) => ({
-        ...previous,
-        [symbol]: {
-          bars: previous[symbol]?.bars ?? [],
-          indicators: previous[symbol]?.indicators ?? null,
-          timeframe,
+      upsertDetail(
+        cacheKey,
+        (previous) => ({
+          bars: previous?.bars ?? [],
+          indicators: previous?.indicators ?? null,
+          timeframe: activeTimeframe,
           loading: true,
+          loadingMoreBefore: previous?.loadingMoreBefore ?? false,
+          hasMoreBefore: previous?.hasMoreBefore ?? false,
+          earliestLoadedAt: previous?.earliestLoadedAt ?? null,
+          lookbackStartDate: previous?.lookbackStartDate ?? null,
+          nextFetchEndDate: previous?.nextFetchEndDate ?? null,
           error: null,
-          updatedAt: previous[symbol]?.updatedAt ?? null,
-          source: previous[symbol]?.source ?? null,
-          barsDataSource: previous[symbol]?.barsDataSource ?? null
-        }
-      }));
+          updatedAt: previous?.updatedAt ?? null,
+          source: previous?.source ?? null,
+          barsDataSource: previous?.barsDataSource ?? null
+        })
+      );
+
+      const endDate = query.useTradingDays ? currentMarketTradingDate() : dateOffset(0);
+      const lookbackStartDate = query.useTradingDays
+        ? shiftTradingDate(endDate, -(query.lookbackDays - 1))
+        : dateOffset(-(query.lookbackDays - 1));
+      const windowDays = force && existing?.bars.length ? query.refreshWindowDays : query.initialWindowDays;
+      const range = query.useTradingDays
+        ? resolveTradingFetchRange({
+            lookbackStartDate,
+            endDate,
+            windowDays
+          })
+        : resolveFetchRange({
+            lookbackStartDate,
+            endDate,
+            windowDays
+          });
 
       try {
-        const query = marketQueryForTimeframe(timeframe);
         const payload = await listMarketBarsWithMeta({
           token,
           ticker: symbol,
           timespan: query.timespan,
           multiplier: query.multiplier,
-          from: dateOffset(query.fromDays),
-          to: dateOffset(0),
+          from: range.from,
+          to: range.to,
           limit: query.limit
         });
 
-        const bars = payload.items;
-        const sortedBars = [...bars].sort(
-          (left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime()
-        );
+        const incomingBars = sortBars(payload.items);
 
-        setDetailsByTicker((previous) => ({
-          ...previous,
-          [symbol]: {
-            bars: sortedBars,
-            indicators: buildIndicators(sortedBars),
-            timeframe,
+        upsertDetail(cacheKey, (previous) => {
+          const baseBars =
+            force && (previous?.bars.length || existing?.bars.length)
+              ? previous?.bars ?? existing?.bars ?? []
+              : [];
+          const mergedBars =
+            force && baseBars.length > 0
+              ? mergeBarsByStartAt(baseBars, incomingBars)
+              : incomingBars;
+          const persistedLookbackStartDate =
+            previous?.lookbackStartDate ?? existing?.lookbackStartDate ?? lookbackStartDate;
+          const nextFetchEndDate =
+            force && (previous?.bars.length || existing?.bars.length)
+              ? previous?.nextFetchEndDate ?? existing?.nextFetchEndDate ?? null
+              : previousHistoryDate(range.from, query.useTradingDays);
+          const hasMoreBefore = Boolean(
+            mergedBars.length > 0 &&
+              nextFetchEndDate &&
+              compareDateString(nextFetchEndDate, persistedLookbackStartDate) >= 0
+          );
+
+          return {
+            bars: mergedBars,
+            indicators: buildIndicators(mergedBars),
+            timeframe: activeTimeframe,
             loading: false,
+            loadingMoreBefore: false,
+            hasMoreBefore,
+            earliestLoadedAt: mergedBars[0]?.start_at ?? null,
+            lookbackStartDate: persistedLookbackStartDate,
+            nextFetchEndDate,
             error: null,
             updatedAt: new Date().toISOString(),
             source: "REST",
             barsDataSource: payload.dataSource
-          }
-        }));
+          };
+        });
       } catch (error: any) {
-        setDetailsByTicker((previous) => ({
-          ...previous,
-          [symbol]: {
-            bars: previous[symbol]?.bars ?? [],
-            indicators: previous[symbol]?.indicators ?? null,
-            timeframe,
-            loading: false,
-            error: error?.message ?? `Failed to load ${symbol}`,
-            updatedAt: previous[symbol]?.updatedAt ?? null,
-            source: previous[symbol]?.source ?? null,
-            barsDataSource: previous[symbol]?.barsDataSource ?? null
-          }
+        upsertDetail(cacheKey, (previous) => ({
+          bars: previous?.bars ?? [],
+          indicators: previous?.indicators ?? null,
+          timeframe: activeTimeframe,
+          loading: false,
+          loadingMoreBefore: previous?.loadingMoreBefore ?? false,
+          hasMoreBefore: previous?.hasMoreBefore ?? false,
+          earliestLoadedAt: previous?.earliestLoadedAt ?? null,
+          lookbackStartDate: previous?.lookbackStartDate ?? lookbackStartDate,
+          nextFetchEndDate: previous?.nextFetchEndDate ?? null,
+          error: error?.message ?? `Failed to load ${symbol}`,
+          updatedAt: previous?.updatedAt ?? null,
+          source: previous?.source ?? null,
+          barsDataSource: previous?.barsDataSource ?? null
         }));
       }
     },
-    [timeframe, token]
+    [token, touchDetailKey, upsertDetail]
+  );
+
+  const loadMoreTickerHistory = React.useCallback(
+    async (ticker: string) => {
+      if (!token) return;
+
+      const symbol = normalizeSymbol(ticker);
+      const activeTimeframe = timeframeRef.current;
+      if (!isIntradayTimeframe(activeTimeframe)) {
+        return;
+      }
+
+      const cacheKey = buildDetailCacheKey(symbol, activeTimeframe);
+      const existing = detailsRef.current[cacheKey];
+      const query = marketQueryForTimeframe(activeTimeframe);
+
+      if (!existing || existing.loading || existing.loadingMoreBefore) return;
+      if (!existing.hasMoreBefore || !existing.nextFetchEndDate || !existing.lookbackStartDate) return;
+      if (loadMoreInFlightRef.current.has(cacheKey)) return;
+      const lookbackStartDate = existing.lookbackStartDate;
+
+      loadMoreInFlightRef.current.add(cacheKey);
+      upsertDetail(cacheKey, (previous) => ({
+        bars: previous?.bars ?? [],
+        indicators: previous?.indicators ?? null,
+        timeframe: activeTimeframe,
+        loading: false,
+        loadingMoreBefore: true,
+        hasMoreBefore: previous?.hasMoreBefore ?? false,
+        earliestLoadedAt: previous?.earliestLoadedAt ?? null,
+        lookbackStartDate: previous?.lookbackStartDate ?? existing.lookbackStartDate,
+        nextFetchEndDate: previous?.nextFetchEndDate ?? existing.nextFetchEndDate,
+        error: null,
+        updatedAt: previous?.updatedAt ?? null,
+        source: previous?.source ?? null,
+        barsDataSource: previous?.barsDataSource ?? null
+      }));
+
+      const range = query.useTradingDays
+        ? resolveTradingFetchRange({
+            lookbackStartDate: existing.lookbackStartDate,
+            endDate: existing.nextFetchEndDate,
+            windowDays: query.chunkWindowDays
+          })
+        : resolveFetchRange({
+            lookbackStartDate: existing.lookbackStartDate,
+            endDate: existing.nextFetchEndDate,
+            windowDays: query.chunkWindowDays
+          });
+
+      try {
+        const payload = await listMarketBarsWithMeta({
+          token,
+          ticker: symbol,
+          timespan: query.timespan,
+          multiplier: query.multiplier,
+          from: range.from,
+          to: range.to,
+          limit: query.limit
+        });
+
+        const incomingBars = sortBars(payload.items);
+        const nextFetchEndDate = previousHistoryDate(range.from, query.useTradingDays);
+
+        upsertDetail(cacheKey, (previous) => {
+          const currentBars = previous?.bars ?? existing.bars;
+          const mergedBars = mergeBarsByStartAt(currentBars, incomingBars);
+          const persistedLookbackStartDate = previous?.lookbackStartDate ?? lookbackStartDate;
+          const hasMoreBefore =
+            compareDateString(nextFetchEndDate, persistedLookbackStartDate) >= 0;
+
+          return {
+            bars: mergedBars,
+            indicators: buildIndicators(mergedBars),
+            timeframe: activeTimeframe,
+            loading: false,
+            loadingMoreBefore: false,
+            hasMoreBefore,
+            earliestLoadedAt: mergedBars[0]?.start_at ?? existing.earliestLoadedAt,
+            lookbackStartDate: persistedLookbackStartDate,
+            nextFetchEndDate,
+            error: null,
+            updatedAt: new Date().toISOString(),
+            source: "REST",
+            barsDataSource: payload.dataSource ?? previous?.barsDataSource ?? existing.barsDataSource
+          };
+        });
+      } catch (error: any) {
+        upsertDetail(cacheKey, (previous) => ({
+          bars: previous?.bars ?? existing.bars,
+          indicators: previous?.indicators ?? existing.indicators,
+          timeframe: activeTimeframe,
+          loading: false,
+          loadingMoreBefore: false,
+          hasMoreBefore: previous?.hasMoreBefore ?? existing.hasMoreBefore,
+          earliestLoadedAt: previous?.earliestLoadedAt ?? existing.earliestLoadedAt,
+          lookbackStartDate: previous?.lookbackStartDate ?? lookbackStartDate,
+          nextFetchEndDate: previous?.nextFetchEndDate ?? existing.nextFetchEndDate,
+          error: error?.message ?? `Failed to load older ${symbol} bars`,
+          updatedAt: previous?.updatedAt ?? existing.updatedAt,
+          source: previous?.source ?? existing.source,
+          barsDataSource: previous?.barsDataSource ?? existing.barsDataSource
+        }));
+      } finally {
+        loadMoreInFlightRef.current.delete(cacheKey);
+      }
+    },
+    [token, upsertDetail]
   );
 
   React.useEffect(() => {
@@ -323,6 +579,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       barsPollRef.current = window.setInterval(() => {
         const symbol = activeTickerRef.current;
         if (!symbol) return;
+        if (!isIntradayTimeframe(timeframeRef.current)) return;
         void loadTickerDetailRef.current(symbol, true);
       }, BARS_POLL_INTERVAL_MS);
     }
@@ -598,9 +855,15 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     }
 
     void loadTickerDetail(activeTicker, true);
-  }, [activeTicker, loadTickerDetail]);
+  }, [activeTicker, loadTickerDetail, timeframe]);
 
-  const activeDetail = activeTicker ? detailsByTicker[activeTicker] : null;
+  React.useEffect(() => {
+    if (!activeTicker) return;
+    touchDetailKey(buildDetailCacheKey(activeTicker, timeframe));
+  }, [activeTicker, timeframe, touchDetailKey]);
+
+  const activeDetailKey = activeTicker ? buildDetailCacheKey(activeTicker, timeframe) : null;
+  const activeDetail = activeDetailKey ? detailsByKey[activeDetailKey] ?? null : null;
   const activeSnapshot = activeTicker ? snapshotMap[activeTicker] : null;
   const latestBar = activeDetail?.bars.at(-1);
 
@@ -636,12 +899,18 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
       try {
         await deleteWatchlist(token, symbol);
+        removeDetailsBySymbol(symbol);
+        setSnapshotMap((previous) => {
+          const next = { ...previous };
+          delete next[symbol];
+          return next;
+        });
         await refreshWatchlist();
       } catch (error: any) {
         setWatchlistError(error?.message ?? "Failed to delete ticker.");
       }
     },
-    [refreshWatchlist, token]
+    [refreshWatchlist, removeDetailsBySymbol, token]
   );
 
   const onSelectTicker = React.useCallback(
@@ -674,6 +943,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     activeSnapshot,
     latestBar,
     loadTickerDetail,
+    loadMoreTickerHistory,
     refreshSnapshots,
 
     streamStatus,
@@ -694,6 +964,17 @@ type MarketRealtimeConfig = {
 type MarketRealtimeConfigEnv = {
   realtimeEnabled?: string;
   delayMinutes?: string;
+};
+
+type TimeframeQueryConfig = {
+  timespan: string;
+  multiplier: number;
+  useTradingDays: boolean;
+  lookbackDays: number;
+  initialWindowDays: number;
+  refreshWindowDays: number;
+  chunkWindowDays: number;
+  limit: number;
 };
 
 export function resolveMarketRealtimeConfig(env: MarketRealtimeConfigEnv): MarketRealtimeConfig {
@@ -726,27 +1007,197 @@ function dateOffset(days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-export function marketQueryForTimeframe(timeframe: TimeframeKey): {
-  timespan: string;
-  multiplier: number;
-  fromDays: number;
-  limit: number;
-} {
+function currentMarketDate(): string {
+  return formatMarketDate(new Date());
+}
+
+function formatMarketDate(value: Date): string {
+  const parts = MARKET_DATE_FORMATTER.formatToParts(value);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDate(dateString: string, days: number): string {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function isTradingDate(dateString: string): boolean {
+  const day = new Date(`${dateString}T12:00:00Z`).getUTCDay();
+  return day >= 1 && day <= 5;
+}
+
+function shiftTradingDate(dateString: string, tradingDays: number): string {
+  let current = dateString;
+  while (!isTradingDate(current)) {
+    current = shiftDate(current, -1);
+  }
+
+  if (tradingDays === 0) {
+    return current;
+  }
+
+  const step = tradingDays > 0 ? 1 : -1;
+  let remaining = Math.abs(tradingDays);
+  while (remaining > 0) {
+    current = shiftDate(current, step);
+    if (isTradingDate(current)) {
+      remaining -= 1;
+    }
+  }
+
+  return current;
+}
+
+function currentMarketTradingDate(): string {
+  return shiftTradingDate(currentMarketDate(), 0);
+}
+
+function previousHistoryDate(dateString: string, useTradingDays: boolean): string {
+  return useTradingDays ? shiftTradingDate(dateString, -1) : shiftDate(dateString, -1);
+}
+
+function compareDateString(left: string, right: string): number {
+  if (left === right) return 0;
+  return left > right ? 1 : -1;
+}
+
+type DateRange = {
+  from: string;
+  to: string;
+};
+
+function resolveFetchRange(params: {
+  lookbackStartDate: string;
+  endDate: string;
+  windowDays: number;
+}): DateRange {
+  const safeWindow = Math.max(1, params.windowDays);
+  const candidateFrom = shiftDate(params.endDate, -(safeWindow - 1));
+  const from = compareDateString(candidateFrom, params.lookbackStartDate) < 0
+    ? params.lookbackStartDate
+    : candidateFrom;
+
+  return {
+    from,
+    to: params.endDate
+  };
+}
+
+function resolveTradingFetchRange(params: {
+  lookbackStartDate: string;
+  endDate: string;
+  windowDays: number;
+}): DateRange {
+  const normalizedEnd = shiftTradingDate(params.endDate, 0);
+  const safeWindow = Math.max(1, params.windowDays);
+  const candidateFrom = shiftTradingDate(normalizedEnd, -(safeWindow - 1));
+  const from = compareDateString(candidateFrom, params.lookbackStartDate) < 0
+    ? params.lookbackStartDate
+    : candidateFrom;
+
+  return {
+    from,
+    to: normalizedEnd
+  };
+}
+
+export function marketQueryForTimeframe(timeframe: TimeframeKey): TimeframeQueryConfig {
   switch (timeframe) {
+    case "1m":
+      return {
+        timespan: "minute",
+        multiplier: 1,
+        useTradingDays: true,
+        lookbackDays: INTRADAY_LOOKBACK_DAYS,
+        initialWindowDays: INTRADAY_LOAD_WINDOW_DAYS_1M,
+        refreshWindowDays: 2,
+        chunkWindowDays: INTRADAY_CHUNK_WINDOW_DAYS_1M,
+        limit: 5000
+      };
     case "5m":
-      return { timespan: "minute", multiplier: 5, fromDays: -14, limit: 2500 };
+      return {
+        timespan: "minute",
+        multiplier: 5,
+        useTradingDays: true,
+        lookbackDays: INTRADAY_LOOKBACK_DAYS,
+        initialWindowDays: INTRADAY_LOOKBACK_DAYS,
+        refreshWindowDays: 2,
+        chunkWindowDays: INTRADAY_LOOKBACK_DAYS,
+        limit: 1500
+      };
     case "15m":
-      return { timespan: "minute", multiplier: 15, fromDays: -14, limit: 1200 };
+      return {
+        timespan: "minute",
+        multiplier: 15,
+        useTradingDays: true,
+        lookbackDays: INTRADAY_LOOKBACK_DAYS,
+        initialWindowDays: INTRADAY_LOOKBACK_DAYS,
+        refreshWindowDays: 2,
+        chunkWindowDays: INTRADAY_LOOKBACK_DAYS,
+        limit: 1000
+      };
     case "60m":
-      return { timespan: "minute", multiplier: 60, fromDays: -14, limit: 520 };
+      return {
+        timespan: "minute",
+        multiplier: 60,
+        useTradingDays: true,
+        lookbackDays: INTRADAY_LOOKBACK_DAYS,
+        initialWindowDays: INTRADAY_LOOKBACK_DAYS,
+        refreshWindowDays: 3,
+        chunkWindowDays: INTRADAY_LOOKBACK_DAYS,
+        limit: 500
+      };
     case "week":
-      return { timespan: "week", multiplier: 1, fromDays: -3650, limit: 700 };
+      return {
+        timespan: "week",
+        multiplier: 1,
+        useTradingDays: false,
+        lookbackDays: LONG_TERM_LOOKBACK_DAYS,
+        initialWindowDays: LONG_TERM_LOOKBACK_DAYS,
+        refreshWindowDays: 180,
+        chunkWindowDays: LONG_TERM_LOOKBACK_DAYS,
+        limit: 700
+      };
     case "month":
-      return { timespan: "month", multiplier: 1, fromDays: -7300, limit: 360 };
+      return {
+        timespan: "month",
+        multiplier: 1,
+        useTradingDays: false,
+        lookbackDays: LONG_TERM_LOOKBACK_DAYS,
+        initialWindowDays: LONG_TERM_LOOKBACK_DAYS,
+        refreshWindowDays: 365,
+        chunkWindowDays: LONG_TERM_LOOKBACK_DAYS,
+        limit: 240
+      };
     case "day":
     default:
-      return { timespan: "day", multiplier: 1, fromDays: -320, limit: 900 };
+      return {
+        timespan: "day",
+        multiplier: 1,
+        useTradingDays: false,
+        lookbackDays: LONG_TERM_LOOKBACK_DAYS,
+        initialWindowDays: LONG_TERM_LOOKBACK_DAYS,
+        refreshWindowDays: 60,
+        chunkWindowDays: LONG_TERM_LOOKBACK_DAYS,
+        limit: 3000
+      };
   }
+}
+
+function isIntradayTimeframe(timeframe: TimeframeKey): boolean {
+  return timeframe === "1m" || timeframe === "5m" || timeframe === "15m" || timeframe === "60m";
+}
+
+function buildDetailCacheKey(symbol: string, timeframe: TimeframeKey): string {
+  return `${symbol}::${timeframe}`;
+}
+
+function isDetailKeyForSymbol(key: string, symbol: string): boolean {
+  return key.startsWith(`${symbol}::`);
 }
 
 function normalizeSymbol(value: string | null | undefined): string {
@@ -797,6 +1248,24 @@ function resolveSnapshotLast(currentLast: number, message: StreamMarketMessage):
     return message.last ?? message.close ?? currentLast;
   }
   return currentLast;
+}
+
+function sortBars(items: MarketBar[]): MarketBar[] {
+  return [...items].sort(
+    (left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime()
+  );
+}
+
+export function mergeBarsByStartAt(existing: MarketBar[], incoming: MarketBar[]): MarketBar[] {
+  const merged = new Map<string, MarketBar>();
+  existing.forEach((bar) => {
+    merged.set(bar.start_at, bar);
+  });
+  incoming.forEach((bar) => {
+    merged.set(bar.start_at, bar);
+  });
+
+  return sortBars(Array.from(merged.values()));
 }
 
 function parseEnvBoolean(value: string | undefined, fallback: boolean): boolean {

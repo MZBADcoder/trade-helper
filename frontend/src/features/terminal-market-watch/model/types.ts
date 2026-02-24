@@ -1,7 +1,7 @@
 import { type IndicatorBundle, type MarketBar, type MarketSnapshot } from "@/entities/market";
 import { type WatchlistItem } from "@/entities/watchlist";
 
-export type TimeframeKey = "5m" | "15m" | "60m" | "day" | "week" | "month";
+export type TimeframeKey = "1m" | "5m" | "15m" | "60m" | "day" | "week" | "month";
 export type StreamStatus =
   | "idle"
   | "connecting"
@@ -17,6 +17,11 @@ export type DetailSnapshot = {
   indicators: IndicatorBundle | null;
   timeframe: TimeframeKey | null;
   loading: boolean;
+  loadingMoreBefore: boolean;
+  hasMoreBefore: boolean;
+  earliestLoadedAt: string | null;
+  lookbackStartDate: string | null;
+  nextFetchEndDate: string | null;
   error: string | null;
   updatedAt: string | null;
   source: string | null;
@@ -54,6 +59,7 @@ export type TerminalMarketWatchViewModel = {
   activeSnapshot: MarketSnapshot | null;
   latestBar: MarketBar | undefined;
   loadTickerDetail: (ticker: string, force?: boolean) => Promise<void>;
+  loadMoreTickerHistory: (ticker: string) => Promise<void>;
   refreshSnapshots: (symbols?: string[]) => Promise<void>;
 
   streamStatus: StreamStatus;

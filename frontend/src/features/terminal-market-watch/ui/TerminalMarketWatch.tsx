@@ -39,6 +39,7 @@ export function TerminalMarketWatch() {
     activeSnapshot,
     latestBar,
     loadTickerDetail,
+    loadMoreTickerHistory,
     refreshSnapshots,
 
     streamStatus,
@@ -219,7 +220,16 @@ export function TerminalMarketWatch() {
                 {activeDetail?.error ? <div className="errorText">{activeDetail.error}</div> : null}
 
                 {activeDetail?.bars.length && activeDetail.indicators ? (
-                  <StockChartPanel ticker={activeTicker} bars={activeDetail.bars} indicators={activeDetail.indicators} />
+                  <StockChartPanel
+                    ticker={activeTicker}
+                    timeframe={timeframe}
+                    historyCursor={activeDetail.nextFetchEndDate}
+                    bars={activeDetail.bars}
+                    indicators={activeDetail.indicators}
+                    hasMoreBefore={activeDetail.hasMoreBefore}
+                    isLoadingMoreBefore={activeDetail.loadingMoreBefore}
+                    onLoadMoreBefore={() => loadMoreTickerHistory(activeTicker)}
+                  />
                 ) : (
                   <div className="emptyState">
                     <TerminalEmptyGraphic />

@@ -23,4 +23,6 @@
 - [x] FE-MW-V2：WS 降级态（reconnecting/degraded/recovering）文案与颜色语义已落地到页面状态展示。
 - [ ] FE-MW-V2：与 BE 对齐 `system.status` 推送字段，避免前端自行推导连接原因。
 - [ ] FE-MW-V2：评估 options chain 大表渲染方案（分页 vs 虚拟滚动）并给出性能基线。
-- [x] FE-MW-V2：对齐 BE-0005 的 minute 粒度（`5m/15m/60m`），并在详情区展示 bars 的 `X-Data-Source`。
+- [x] FE-MW-V2：对齐 minute 粒度（`1m/5m/15m/60m`，10 个交易日边界），并在详情区展示 bars 的 `X-Data-Source`。
+- [x] FE-MW-V2：K 线支持 `300/500/1000` 缩放、鼠标横向平移，以及左边界自动补拉历史（`1m` 按 3 天窗口补拉）。
+- [ ] FE-MW-V2（P2）：分钟级 K 线交易日判定当前仅排除周末，后续补充更精确控制（交易所休市日历或基于后端返回数据的无数据日识别）。

@@ -64,7 +64,8 @@
    - ticker 列表、添加/删除
    - 行内展示 `Last / Change / %Change / UpdatedAt`
 2. **中部 Detail Workspace**
-   - 顶部 symbol header + 时间粒度切换（PMF 阶段 minute 收敛到 `5m/15m/60m`）
+   - 顶部 symbol header + 时间粒度切换（`1m/5m/15m/60m/day/week/month`）
+   - minute 粒度统一历史边界 `10 个交易日`
    - 主图（K 线 + 指标）
    - 当前价、日内高低、成交量、数据来源
 3. **右侧 Options Workspace（可折叠）**
@@ -92,9 +93,17 @@
 
 1. 若 ticker 未在当前订阅集中，发送 `subscribe`。
 2. 请求该 ticker 的 `bars`（minute/day 由当前时间粒度决定）。
-   - 对齐 BE-0005：minute 聚合粒度先收敛到 `multiplier in {5,15,60}`（必要时保留 `1m` 为回源/调试用，不作为默认 UI 选项）。
+   - minute 使用 `multiplier in {1,5,15,60}`，历史边界统一 `10 个交易日`。
+   - `1m` 首屏先拉最近 `3 个交易日`，向左平移到边界时按 `3 个交易日`窗口自动补拉直到 `10 个交易日`边界。
+   - 前端缓存按 `ticker+timeframe` 维度维护，并使用 LRU 预算控制内存占用。
 3. 重置 detail 区临时状态，保留 watchlist 实时流。
 4. 当第一条该 ticker WS 增量到达后，更新 detail “最后更新时间”。
+
+### 4.5 图表交互
+
+1. 默认显示 `300` 根 bar，可通过 `+/-` 切换到 `500/1000`。
+2. 点击并拖拽主 K 线图可左右平移，同步驱动 MACD/RSI/VOL 三个子图窗口。
+3. 当窗口贴近最左侧且存在更早数据时，触发自动补拉（带并发保护，避免重复请求）。
 
 ### 4.3 用户打开 options 视图（HOLD，下一阶段恢复）
 
