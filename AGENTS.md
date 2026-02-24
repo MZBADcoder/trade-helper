@@ -99,3 +99,13 @@ If `pytest` is unavailable in current environment, state that explicitly in the 
 - Docs map: `docs/README.md`
 - Architecture baseline: `docs/adr/ARCHITECTURE-BASELINE.md`
 - Backend architecture: `backend/ARCHITECTURE.md`
+
+## Git Commit Message Convention
+
+When the user asks to commit and does not provide a custom format, follow this default:
+
+- The title should be a single sentence summarizing the main change.
+- The title must include one type: `feat` / `bugfix` / `refactor`.
+- The title must include the primary scope: `frontend` or `backend` (for cross-layer changes, use the dominant scope).
+- Recommended format: `<type>(<scope>): <one-sentence summary>`.
+- If the change is large, add details in the description/body using `summary` / `detail`.
