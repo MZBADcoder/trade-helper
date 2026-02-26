@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.application.auth.login_throttle import AuthLoginThrottle
 from app.application.auth.service import AuthApplicationService
-from app.domain.auth.constants import ERROR_EMAIL_ALREADY_REGISTERED
+from app.domain.auth.constants import ERROR_AUTH_RATE_LIMITED, ERROR_EMAIL_ALREADY_REGISTERED
 from app.domain.auth.schemas import User, UserCredentials
 
 
@@ -110,4 +111,19 @@ def test_login_rejects_wrong_password() -> None:
     service.register(email="trader@example.com", password="strong-pass-123")
 
     with pytest.raises(ValueError, match="Invalid email or password"):
+        service.login(email="trader@example.com", password="wrong-password")
+
+
+def test_login_throttle_blocks_after_repeated_failures() -> None:
+    repo = FakeAuthRepository()
+    throttle = AuthLoginThrottle(max_failures=2, window_seconds=60, block_seconds=300)
+    service = AuthApplicationService(
+        uow=FakeUoW(auth_repo=repo),
+        login_throttle=throttle,
+    )
+    service.register(email="trader@example.com", password="strong-pass-123")
+
+    with pytest.raises(ValueError, match="Invalid email or password"):
+        service.login(email="trader@example.com", password="wrong-password")
+    with pytest.raises(ValueError, match=ERROR_AUTH_RATE_LIMITED):
         service.login(email="trader@example.com", password="wrong-password")

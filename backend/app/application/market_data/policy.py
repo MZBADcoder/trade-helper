@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.application.market_data.trading_calendar import TradingCalendar
 
 SUPPORTED_TIMESPANS = {"minute", "day", "week", "month"}
 MIN_MULTIPLIER = 1
@@ -26,18 +30,50 @@ def is_range_too_large(
     multiplier: int,
     start_date: date,
     end_date: date,
+    trading_calendar: TradingCalendar | None = None,
 ) -> bool:
     days = (end_date - start_date).days
     if days <= 0:
         return False
 
     if timespan == "minute":
-        estimated_points = (days * 24 * 60) // multiplier
+        if trading_calendar is None:
+            estimated_points = (days * 24 * 60) // multiplier
+        else:
+            max_minutes = (MAX_ESTIMATED_POINTS + 1) * multiplier
+            total_minutes = trading_calendar.count_session_minutes(
+                start_date=start_date,
+                end_date=end_date,
+                max_minutes=max_minutes,
+            )
+            estimated_points = total_minutes // multiplier
     elif timespan == "day":
-        estimated_points = days // multiplier
+        if trading_calendar is None:
+            estimated_points = days // multiplier
+        else:
+            max_days = (MAX_ESTIMATED_POINTS + 1) * multiplier
+            trading_days = trading_calendar.count_trading_days(
+                start_date=start_date,
+                end_date=end_date,
+                max_count=max_days,
+            )
+            estimated_points = trading_days // multiplier
     elif timespan == "week":
-        estimated_points = days // (7 * multiplier)
+        if trading_calendar is None:
+            estimated_points = days // (7 * multiplier)
+        else:
+            trading_days = trading_calendar.count_trading_days(
+                start_date=start_date,
+                end_date=end_date,
+            )
+            estimated_points = trading_days // (5 * multiplier)
     else:
-        estimated_points = days // (30 * multiplier)
+        if trading_calendar is None:
+            estimated_points = days // (30 * multiplier)
+        else:
+            trading_days = trading_calendar.count_trading_days(
+                start_date=start_date,
+                end_date=end_date,
+            )
+            estimated_points = trading_days // (21 * multiplier)
     return estimated_points > MAX_ESTIMATED_POINTS
-

@@ -59,6 +59,17 @@ class MassiveClient:
         raw = self._call_first_supported(candidates)
         return self._normalize_result_list(raw)
 
+    def list_market_holidays(self) -> list[dict[str, Any]]:
+        candidates = (("get_market_holidays", {}),)
+        raw = self._call_first_supported(candidates)
+        return self._normalize_result_list(raw)
+
+    def get_market_status(self) -> dict[str, Any]:
+        candidates = (("get_market_status", {}),)
+        raw = self._call_first_supported(candidates)
+        normalized = _to_dict(raw)
+        return normalized if normalized is not None else {}
+
     def list_options_expirations(
         self,
         *,
@@ -109,10 +120,31 @@ class MassiveClient:
             payload["strike_price_lte"] = strike_to
         if option_type in {"call", "put"}:
             payload["contract_type"] = option_type
+        candidates: list[tuple[str, dict[str, Any]]] = []
         if cursor:
-            payload["cursor"] = cursor
+            candidates.append(
+                (
+                    "list_options_contracts",
+                    {
+                        **payload,
+                        "params": {
+                            "cursor": cursor,
+                        },
+                    },
+                )
+            )
+            candidates.append(
+                (
+                    "list_options_contracts",
+                    {
+                        **payload,
+                        "cursor": cursor,
+                    },
+                )
+            )
+        else:
+            candidates.append(("list_options_contracts", payload))
 
-        candidates = (("list_options_contracts", payload),)
         raw = self._call_first_supported(candidates)
         if isinstance(raw, dict):
             return raw
@@ -139,7 +171,7 @@ class MassiveClient:
 
     def _call_first_supported(
         self,
-        candidates: tuple[tuple[str, dict[str, Any]], ...],
+        candidates: Iterable[tuple[str, dict[str, Any]]],
     ) -> Any:
         for method_name, kwargs in candidates:
             method = getattr(self._client, method_name, None)

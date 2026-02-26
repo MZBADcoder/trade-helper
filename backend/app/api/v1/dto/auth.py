@@ -32,3 +32,7 @@ class UserOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None = None
+
+
+class RegisterAcceptedOut(BaseModel):
+    accepted: bool = True

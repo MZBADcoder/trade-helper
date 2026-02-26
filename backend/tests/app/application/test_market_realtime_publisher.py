@@ -33,9 +33,15 @@ class FakeEventPublisher:
     def __init__(self) -> None:
         self.published: list[dict[str, Any]] = []
         self.closed = False
+        self.unavailable_error_published = asyncio.Event()
 
     async def publish(self, payload: dict[str, Any]) -> None:
         self.published.append(payload)
+        if (
+            payload.get("type") == "system.error"
+            and payload.get("data", {}).get("code") == "STREAM_UPSTREAM_UNAVAILABLE"
+        ):
+            self.unavailable_error_published.set()
 
     async def close(self) -> None:
         self.closed = True
@@ -122,7 +128,7 @@ def test_realtime_publisher_without_upstream_publishes_unavailable_error() -> No
 
         stop_event = asyncio.Event()
         task = asyncio.create_task(service.run(stop_event=stop_event))
-        await asyncio.sleep(0.02)
+        await asyncio.wait_for(publisher.unavailable_error_published.wait(), timeout=1.0)
         stop_event.set()
         await task
 

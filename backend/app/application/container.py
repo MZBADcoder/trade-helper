@@ -5,6 +5,7 @@ import os
 import socket
 
 from app.application.auth.service import AuthApplicationService
+from app.application.auth.login_throttle import AuthLoginThrottle
 from app.application.market_data.realtime_publisher import StockMarketRealtimePublisher
 from app.application.market_data.service import MarketDataApplicationService
 from app.application.market_data.stream_hub import StockMarketStreamHub
@@ -13,6 +14,7 @@ from app.application.market_data.stream_policy import (
     default_stream_channels,
     normalized_delay_minutes,
 )
+from app.application.market_data.trading_calendar import TradingCalendar
 from app.application.options.service import OptionsApplicationService
 from app.application.watchlist.service import WatchlistApplicationService
 from app.core.config import settings
@@ -34,6 +36,11 @@ def _massive_client() -> MassiveClient | None:
     return MassiveClient(settings.massive_api_key)
 
 
+@lru_cache
+def _trading_calendar() -> TradingCalendar:
+    return TradingCalendar(massive_client=_massive_client())
+
+
 def build_uow() -> SqlAlchemyUnitOfWork:
     return SqlAlchemyUnitOfWork(session_factory=SessionLocal)
 
@@ -42,6 +49,7 @@ def build_market_data_service() -> MarketDataApplicationService:
     return MarketDataApplicationService(
         uow=build_uow(),
         massive_client=_massive_client(),
+        trading_calendar=_trading_calendar(),
     )
 
 
@@ -59,8 +67,16 @@ def build_options_service() -> OptionsApplicationService:
     )
 
 
+@lru_cache
+def _auth_login_throttle() -> AuthLoginThrottle:
+    return AuthLoginThrottle()
+
+
 def build_auth_service() -> AuthApplicationService:
-    return AuthApplicationService(uow=build_uow())
+    return AuthApplicationService(
+        uow=build_uow(),
+        login_throttle=_auth_login_throttle(),
+    )
 
 
 @lru_cache

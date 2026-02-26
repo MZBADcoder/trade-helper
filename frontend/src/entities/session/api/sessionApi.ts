@@ -2,6 +2,10 @@ import { apiRequest } from "@/shared/api";
 
 import { type AccessToken, type AuthPayload, type SessionUser } from "../model/types";
 
+type RegisterAccepted = {
+  accepted: boolean;
+};
+
 export async function login(payload: AuthPayload): Promise<AccessToken> {
   return apiRequest<AccessToken>("/auth/login", {
     method: "POST",
@@ -9,8 +13,8 @@ export async function login(payload: AuthPayload): Promise<AccessToken> {
   });
 }
 
-export async function register(payload: AuthPayload): Promise<SessionUser> {
-  return apiRequest<SessionUser>("/auth/register", {
+export async function register(payload: AuthPayload): Promise<RegisterAccepted> {
+  return apiRequest<RegisterAccepted>("/auth/register", {
     method: "POST",
     body: payload
   });

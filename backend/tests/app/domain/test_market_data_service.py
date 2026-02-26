@@ -585,6 +585,21 @@ def test_prefetch_default_does_not_apply_request_range_limit() -> None:
     service.prefetch_default(ticker="AAPL")
 
 
+def test_list_trading_days_skips_weekend() -> None:
+    repo = FakeMarketDataRepository()
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=FailMassiveClient(),
+    )
+
+    days = service.list_trading_days(
+        end_date=date(2026, 2, 24),
+        count=3,
+    )
+
+    assert days == [date(2026, 2, 20), date(2026, 2, 23), date(2026, 2, 24)]
+
+
 def _filter_by_range(
     bars: list[MarketBar],
     *,

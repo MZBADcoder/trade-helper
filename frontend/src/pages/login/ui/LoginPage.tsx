@@ -1,65 +1,27 @@
-import React from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 
 import { useSession } from "@/entities/session";
-
-type AuthMode = "login" | "register";
+import { useAuthForm } from "@/features/auth-form";
 
 export function LoginPage() {
-  const { status, error, clearError, login, register } = useSession();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  const [mode, setMode] = React.useState<AuthMode>("login");
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-  const [localError, setLocalError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    clearError();
-    setLocalError(null);
-  }, [mode, clearError]);
+  const { status } = useSession();
+  const {
+    mode,
+    email,
+    password,
+    confirmPassword,
+    busy,
+    localError,
+    sessionError,
+    setMode,
+    setEmail,
+    setPassword,
+    setConfirmPassword,
+    submit,
+  } = useAuthForm();
 
   if (status === "authenticated") {
     return <Navigate to="/terminal" replace />;
-  }
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLocalError(null);
-    const trimmedEmail = email.trim();
-
-    if (!trimmedEmail) {
-      setLocalError("Email is required.");
-      return;
-    }
-
-    if (password.length < 8) {
-      setLocalError("Password must be at least 8 characters.");
-      return;
-    }
-
-    if (mode === "register" && password !== confirmPassword) {
-      setLocalError("Confirm password does not match.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      if (mode === "login") {
-        await login({ email: trimmedEmail, password });
-      } else {
-        await register({ email: trimmedEmail, password });
-      }
-      const from = (location.state as { from?: string } | null)?.from;
-      navigate(from || "/terminal", { replace: true });
-    } catch {
-      // handled by session context error
-    } finally {
-      setBusy(false);
-    }
   }
 
   return (
@@ -85,7 +47,7 @@ export function LoginPage() {
         <h1 className="authTitle">{mode === "login" ? "Enter Trading Terminal" : "Create Trading Account"}</h1>
         <p className="authHint">Use your account to access watchlist, charting and indicator analysis.</p>
 
-        <form onSubmit={onSubmit} className="authForm">
+        <form onSubmit={submit} className="authForm">
           <label className="fieldLabel" htmlFor="email">
             Email
           </label>
@@ -130,7 +92,7 @@ export function LoginPage() {
           ) : null}
 
           {localError ? <div className="errorText">{localError}</div> : null}
-          {error ? <div className="errorText">{error}</div> : null}
+          {sessionError ? <div className="errorText">{sessionError}</div> : null}
 
           <button className="btn authSubmit" type="submit" disabled={busy}>
             {busy ? "Processing..." : mode === "login" ? "Login" : "Register"}

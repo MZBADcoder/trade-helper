@@ -27,6 +27,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false;
     const storedToken = window.localStorage.getItem(TOKEN_KEY);
+    const bootstrapToken = storedToken;
 
     if (!storedToken) {
       setStatus("anonymous");
@@ -38,11 +39,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     getCurrentUser(storedToken)
       .then((currentUser) => {
         if (cancelled) return;
+        if (window.localStorage.getItem(TOKEN_KEY) !== bootstrapToken) return;
         setUser(currentUser);
         setStatus("authenticated");
       })
       .catch(() => {
         if (cancelled) return;
+        if (window.localStorage.getItem(TOKEN_KEY) !== bootstrapToken) return;
         window.localStorage.removeItem(TOKEN_KEY);
         setToken(null);
         setUser(null);

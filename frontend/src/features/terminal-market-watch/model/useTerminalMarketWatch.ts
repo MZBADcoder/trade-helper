@@ -4,6 +4,7 @@ import {
   buildIndicators,
   listMarketBarsWithMeta,
   listMarketSnapshots,
+  listTradingDays,
   type MarketBar,
   type MarketSnapshot
 } from "@/entities/market";
@@ -353,22 +354,27 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         })
       );
 
-      const endDate = query.useTradingDays ? currentMarketTradingDate() : dateOffset(0);
-      const lookbackStartDate = query.useTradingDays
-        ? shiftTradingDate(endDate, -(query.lookbackDays - 1))
-        : dateOffset(-(query.lookbackDays - 1));
+      const endDate = query.useTradingDays ? currentMarketDate() : dateOffset(0);
       const windowDays = force && existing?.bars.length ? query.refreshWindowDays : query.initialWindowDays;
-      const range = query.useTradingDays
-        ? resolveTradingFetchRange({
-            lookbackStartDate,
-            endDate,
-            windowDays
-          })
-        : resolveFetchRange({
-            lookbackStartDate,
-            endDate,
-            windowDays
-          });
+      const defaultLookbackStartDate = dateOffset(-(query.lookbackDays - 1));
+      let lookbackStartDate = defaultLookbackStartDate;
+      let range: DateRange = resolveFetchRange({
+        lookbackStartDate: defaultLookbackStartDate,
+        endDate,
+        windowDays
+      });
+      let previousTradingDate: string | null = null;
+      if (query.useTradingDays) {
+        const tradingRange = await resolveTradingFetchRange({
+          token,
+          lookbackDays: query.lookbackDays,
+          endDate,
+          windowDays
+        });
+        lookbackStartDate = tradingRange.lookbackStartDate;
+        range = tradingRange;
+        previousTradingDate = tradingRange.previousTradingDate;
+      }
 
       try {
         const payload = await listMarketBarsWithMeta({
@@ -397,7 +403,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           const nextFetchEndDate =
             force && (previous?.bars.length || existing?.bars.length)
               ? previous?.nextFetchEndDate ?? existing?.nextFetchEndDate ?? null
-              : previousHistoryDate(range.from, query.useTradingDays);
+              : query.useTradingDays
+                ? (previousTradingDate ?? previousHistoryDate(range.from))
+                : previousHistoryDate(range.from);
           const hasMoreBefore = Boolean(
             mergedBars.length > 0 &&
               nextFetchEndDate &&
@@ -477,17 +485,22 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         barsDataSource: previous?.barsDataSource ?? null
       }));
 
-      const range = query.useTradingDays
-        ? resolveTradingFetchRange({
-            lookbackStartDate: existing.lookbackStartDate,
-            endDate: existing.nextFetchEndDate,
-            windowDays: query.chunkWindowDays
-          })
-        : resolveFetchRange({
-            lookbackStartDate: existing.lookbackStartDate,
-            endDate: existing.nextFetchEndDate,
-            windowDays: query.chunkWindowDays
-          });
+      let range: DateRange = resolveFetchRange({
+        lookbackStartDate: existing.lookbackStartDate,
+        endDate: existing.nextFetchEndDate,
+        windowDays: query.chunkWindowDays
+      });
+      let previousTradingDate: string | null = null;
+      if (query.useTradingDays) {
+        const tradingRange = await resolveTradingChunkFetchRange({
+          token,
+          lookbackStartDate: existing.lookbackStartDate,
+          endDate: existing.nextFetchEndDate,
+          windowDays: query.chunkWindowDays
+        });
+        range = tradingRange;
+        previousTradingDate = tradingRange.previousTradingDate;
+      }
 
       try {
         const payload = await listMarketBarsWithMeta({
@@ -501,7 +514,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         });
 
         const incomingBars = sortBars(payload.items);
-        const nextFetchEndDate = previousHistoryDate(range.from, query.useTradingDays);
+        const nextFetchEndDate = query.useTradingDays
+          ? (previousTradingDate ?? previousHistoryDate(range.from))
+          : previousHistoryDate(range.from);
 
         upsertDetail(cacheKey, (previous) => {
           const currentBars = previous?.bars ?? existing.bars;
@@ -1052,12 +1067,8 @@ function shiftTradingDate(dateString: string, tradingDays: number): string {
   return current;
 }
 
-function currentMarketTradingDate(): string {
-  return shiftTradingDate(currentMarketDate(), 0);
-}
-
-function previousHistoryDate(dateString: string, useTradingDays: boolean): string {
-  return useTradingDays ? shiftTradingDate(dateString, -1) : shiftDate(dateString, -1);
+function previousHistoryDate(dateString: string): string {
+  return shiftDate(dateString, -1);
 }
 
 function compareDateString(left: string, right: string): number {
@@ -1068,6 +1079,11 @@ function compareDateString(left: string, right: string): number {
 type DateRange = {
   from: string;
   to: string;
+};
+
+type TradingDateRange = DateRange & {
+  lookbackStartDate: string;
+  previousTradingDate: string;
 };
 
 function resolveFetchRange(params: {
@@ -1087,22 +1103,101 @@ function resolveFetchRange(params: {
   };
 }
 
-function resolveTradingFetchRange(params: {
+async function resolveTradingFetchRange(params: {
+  token: string;
+  lookbackDays: number;
   lookbackStartDate: string;
   endDate: string;
   windowDays: number;
-}): DateRange {
-  const normalizedEnd = shiftTradingDate(params.endDate, 0);
+}): Promise<TradingDateRange>;
+async function resolveTradingFetchRange(params: {
+  token: string;
+  lookbackDays: number;
+  endDate: string;
+  windowDays: number;
+}): Promise<TradingDateRange>;
+async function resolveTradingFetchRange(params: {
+  token: string;
+  lookbackDays: number;
+  lookbackStartDate?: string;
+  endDate: string;
+  windowDays: number;
+}): Promise<TradingDateRange> {
+  const safeLookbackDays = Math.max(1, params.lookbackDays);
+  const lookbackTradingDays = await fetchTradingDays({
+    token: params.token,
+    endDate: params.endDate,
+    count: safeLookbackDays
+  });
+  const normalizedEnd = lookbackTradingDays[lookbackTradingDays.length - 1] ?? shiftTradingDate(params.endDate, 0);
+  const resolvedLookbackStartDate =
+    params.lookbackStartDate ??
+    lookbackTradingDays[0] ??
+    shiftTradingDate(normalizedEnd, -(safeLookbackDays - 1));
   const safeWindow = Math.max(1, params.windowDays);
-  const candidateFrom = shiftTradingDate(normalizedEnd, -(safeWindow - 1));
-  const from = compareDateString(candidateFrom, params.lookbackStartDate) < 0
-    ? params.lookbackStartDate
+  const candidateFrom =
+    lookbackTradingDays[Math.max(0, lookbackTradingDays.length - safeWindow)] ??
+    shiftTradingDate(normalizedEnd, -(safeWindow - 1));
+  const from = compareDateString(candidateFrom, resolvedLookbackStartDate) < 0
+    ? resolvedLookbackStartDate
     : candidateFrom;
+  const previousTradingDate = await resolvePreviousTradingDate({
+    token: params.token,
+    dateString: from
+  });
 
   return {
     from,
-    to: normalizedEnd
+    to: normalizedEnd,
+    lookbackStartDate: resolvedLookbackStartDate,
+    previousTradingDate
   };
+}
+
+async function resolveTradingChunkFetchRange(params: {
+  token: string;
+  lookbackStartDate: string;
+  endDate: string;
+  windowDays: number;
+}): Promise<TradingDateRange> {
+  return resolveTradingFetchRange({
+    token: params.token,
+    lookbackDays: params.windowDays,
+    lookbackStartDate: params.lookbackStartDate,
+    endDate: params.endDate,
+    windowDays: params.windowDays
+  });
+}
+
+async function fetchTradingDays(params: {
+  token: string;
+  endDate: string;
+  count: number;
+}): Promise<string[]> {
+  try {
+    return await listTradingDays({
+      token: params.token,
+      end: params.endDate,
+      count: Math.max(1, params.count)
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function resolvePreviousTradingDate(params: {
+  token: string;
+  dateString: string;
+}): Promise<string> {
+  const history = await fetchTradingDays({
+    token: params.token,
+    endDate: params.dateString,
+    count: 2
+  });
+  if (history.length >= 2) {
+    return history[0] ?? params.dateString;
+  }
+  return shiftTradingDate(params.dateString, -1);
 }
 
 export function marketQueryForTimeframe(timeframe: TimeframeKey): TimeframeQueryConfig {
@@ -1230,42 +1325,8 @@ function createEmptySnapshot(symbol: string): MarketSnapshot {
 }
 
 function buildStreamUrl(): string {
-  return `${resolveStreamWsBaseUrl()}/api/v1/market-data/stream`;
-}
-
-export function resolveStreamWsBaseUrl(env?: {
-  wsBaseUrl?: string;
-  apiBaseUrl?: string;
-}): string {
-  const candidates = [
-    env?.wsBaseUrl,
-    env?.apiBaseUrl,
-    import.meta.env.VITE_WS_BASE_URL as string | undefined,
-    import.meta.env.VITE_API_BASE_URL as string | undefined
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeWsBaseUrl(candidate);
-    if (normalized) return normalized;
-  }
-
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}`;
-}
-
-function normalizeWsBaseUrl(value: string | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-
-  const candidate = trimmed.includes("://") ? trimmed : `http://${trimmed}`;
-
-  try {
-    const parsed = new URL(candidate);
-    const protocol = parsed.protocol === "https:" || parsed.protocol === "wss:" ? "wss:" : "ws:";
-    return `${protocol}//${parsed.host}`;
-  } catch {
-    return null;
-  }
+  return `${protocol}//${window.location.host}/api/v1/market-data/stream`;
 }
 
 function toMillis(value: string): number {

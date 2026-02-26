@@ -53,6 +53,26 @@ class SqlAlchemyMarketDataRepository:
         rows = self._session.execute(stmt).scalars().all()
         return [market_bar_day_to_domain(row) for row in rows]
 
+    def list_recent_day_bars(
+        self,
+        *,
+        ticker: str,
+        limit: int = 2,
+    ) -> list[MarketBar]:
+        if limit < 1:
+            return []
+
+        stmt = (
+            select(MarketBarDayModel)
+            .where(MarketBarDayModel.ticker == ticker)
+            .order_by(MarketBarDayModel.trade_date.desc())
+            .limit(limit)
+        )
+        rows = self._session.execute(stmt).scalars().all()
+        bars = [market_bar_day_to_domain(row) for row in rows]
+        bars.sort(key=lambda bar: bar.start_at)
+        return bars
+
     def list_minute_bars(
         self,
         *,

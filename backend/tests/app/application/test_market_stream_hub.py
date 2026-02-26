@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
-from typing import Callable
 
 import pytest
 
@@ -22,21 +20,31 @@ class FakeTopicRegistry:
 
 
 class SlowSingleTopicRegistry(FakeTopicRegistry):
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_single_topic_seen = asyncio.Event()
+        self.release_first_single_topic = asyncio.Event()
+        self._single_topic_blocked = False
+
     async def update_topics(self, *, instance_id: str, topics: set[str]) -> None:
-        if len(topics) == 1:
-            await asyncio.sleep(0.05)
+        if len(topics) == 1 and not self._single_topic_blocked:
+            self._single_topic_blocked = True
+            self.first_single_topic_seen.set()
+            await self.release_first_single_topic.wait()
         await super().update_topics(instance_id=instance_id, topics=topics)
 
 
 class FlakySubscriber:
     def __init__(self) -> None:
         self.listen_calls = 0
+        self.second_listen_seen = asyncio.Event()
 
     async def listen(self, *, stop_event: asyncio.Event, on_message: object) -> None:
         _ = on_message
         self.listen_calls += 1
         if self.listen_calls == 1:
             raise RuntimeError("subscriber failed")
+        self.second_listen_seen.set()
         await stop_event.wait()
 
 
@@ -189,13 +197,17 @@ def test_stream_hub_registry_sync_uses_latest_topics_under_concurrency() -> None
                 channels={"quote"},
             )
         )
-        await asyncio.sleep(0.01)
-        await hub.set_connection_subscription(
-            connection_id="c2",
-            symbols={"MSFT"},
-            channels={"quote"},
+        await asyncio.wait_for(topic_registry.first_single_topic_seen.wait(), timeout=1.0)
+        second = asyncio.create_task(
+            hub.set_connection_subscription(
+                connection_id="c2",
+                symbols={"MSFT"},
+                channels={"quote"},
+            )
         )
+        topic_registry.release_first_single_topic.set()
         await first
+        await second
 
         assert topic_registry.updates[-1][1] == {"Q.AAPL", "Q.MSFT"}
         await hub.shutdown()
@@ -281,7 +293,7 @@ def test_stream_hub_restarts_subscriber_after_crash() -> None:
         )
 
         await hub.register_connection(connection_id="c1", user_id=1)
-        assert await _wait_until_async(lambda: subscriber.listen_calls >= 2, timeout_seconds=3.0)
+        await asyncio.wait_for(subscriber.second_listen_seen.wait(), timeout=3.0)
         await hub.unregister_connection(connection_id="c1")
         await hub.shutdown()
 
@@ -395,12 +407,3 @@ def test_stream_hub_keeps_runtime_when_connection_joins_during_unregister() -> N
         await hub.shutdown()
 
     asyncio.run(scenario())
-
-
-async def _wait_until_async(predicate: Callable[[], bool], timeout_seconds: float = 1.0) -> bool:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await asyncio.sleep(0.05)
-    return predicate()

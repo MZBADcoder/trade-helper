@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class WatchlistItemCreate(BaseModel):
-    ticker: str = Field(min_length=1, max_length=16)
+    ticker: str = Field(min_length=1, max_length=15, pattern=r"^[A-Za-z.]{1,15}$")
 
 
 class WatchlistItemOut(BaseModel):

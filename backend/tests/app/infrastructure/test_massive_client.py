@@ -64,6 +64,60 @@ def test_list_options_chain_uses_sdk_strike_filter_kwargs() -> None:
     ]
 
 
+def test_list_options_chain_supports_cursor_via_params_signature() -> None:
+    calls: list[dict] = []
+
+    class StubSdkClient:
+        def list_options_contracts(
+            self,
+            *,
+            underlying_ticker: str | None = None,
+            expiration_date: str | None = None,
+            strike_price_gte: float | None = None,
+            strike_price_lte: float | None = None,
+            contract_type: str | None = None,
+            limit: int | None = None,
+            params: dict | None = None,
+        ):
+            calls.append(
+                {
+                    "underlying_ticker": underlying_ticker,
+                    "expiration_date": expiration_date,
+                    "strike_price_gte": strike_price_gte,
+                    "strike_price_lte": strike_price_lte,
+                    "contract_type": contract_type,
+                    "limit": limit,
+                    "params": params,
+                }
+            )
+            return {"results": [{"option_ticker": "O:AAPL260221P00190000"}], "next_url": None}
+
+    client = _build_client_with_stub(StubSdkClient())
+
+    result = client.list_options_chain(
+        underlying="AAPL",
+        expiration="2026-02-21",
+        strike_from=180,
+        strike_to=200,
+        option_type="put",
+        limit=200,
+        cursor="eyJvZmZzZXQiOjIwMH0=",
+    )
+
+    assert result["results"][0]["option_ticker"] == "O:AAPL260221P00190000"
+    assert calls == [
+        {
+            "underlying_ticker": "AAPL",
+            "expiration_date": "2026-02-21",
+            "strike_price_gte": 180,
+            "strike_price_lte": 200,
+            "contract_type": "put",
+            "limit": 200,
+            "params": {"cursor": "eyJvZmZzZXQiOjIwMH0="},
+        }
+    ]
+
+
 def test_get_options_contract_uses_massive_sdk_signature() -> None:
     calls: list[str] = []
 
@@ -100,3 +154,34 @@ def test_get_options_contract_falls_back_to_snapshot_signature() -> None:
 
     assert calls == [("MSFT", "O:MSFT260221P00300000")]
     assert result["results"]["underlying"] == "MSFT"
+
+
+def test_list_market_holidays_uses_sdk_method() -> None:
+    class StubSdkClient:
+        def get_market_holidays(self):
+            return [
+                {
+                    "date": "2026-07-03",
+                    "status": "closed",
+                    "open": "",
+                    "close": "",
+                }
+            ]
+
+    client = _build_client_with_stub(StubSdkClient())
+
+    result = client.list_market_holidays()
+
+    assert result == [{"date": "2026-07-03", "status": "closed", "open": "", "close": ""}]
+
+
+def test_get_market_status_uses_sdk_method() -> None:
+    class StubSdkClient:
+        def get_market_status(self):
+            return {"market": "open"}
+
+    client = _build_client_with_stub(StubSdkClient())
+
+    result = client.get_market_status()
+
+    assert result == {"market": "open"}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listMarketBars, listMarketBarsWithMeta } from "./marketApi";
+import { listMarketBars, listMarketBarsWithMeta, listTradingDays } from "./marketApi";
 
 describe("listMarketBarsWithMeta", () => {
   afterEach(() => {
@@ -111,5 +111,41 @@ describe("listMarketBars", () => {
     });
 
     expect(payload).toEqual([]);
+  });
+});
+
+describe("listTradingDays", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("requests trading-days endpoint with end/count", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: ["2026-02-20", "2026-02-23", "2026-02-24"]
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      )
+    );
+
+    const payload = await listTradingDays({
+      token: "token-5",
+      end: "2026-02-24",
+      count: 3
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, requestInit] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/api/v1/market-data/trading-days?");
+    expect(String(url)).toContain("end=2026-02-24");
+    expect(String(url)).toContain("count=3");
+    expect(requestInit?.method).toBe("GET");
+    expect(payload).toEqual(["2026-02-20", "2026-02-23", "2026-02-24"]);
   });
 });
