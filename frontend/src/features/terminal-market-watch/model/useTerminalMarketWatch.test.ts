@@ -4,6 +4,7 @@ import {
   marketQueryForTimeframe,
   mergeBarsByStartAt,
   resolveMarketRealtimeConfig,
+  resolveStreamWsBaseUrl,
   shouldIgnoreMarketMessage,
   shouldStopDegradedPollingOnStatus,
   streamChannelsForRealtime,
@@ -204,6 +205,42 @@ describe("resolveMarketRealtimeConfig", () => {
       realtimeEnabled: true,
       delayMinutes: 15
     });
+  });
+});
+
+describe("resolveStreamWsBaseUrl", () => {
+  it("uses explicit websocket base url when provided", () => {
+    expect(
+      resolveStreamWsBaseUrl({
+        wsBaseUrl: "wss://stream.example.com"
+      })
+    ).toBe("wss://stream.example.com");
+  });
+
+  it("converts api base url to websocket protocol", () => {
+    expect(
+      resolveStreamWsBaseUrl({
+        apiBaseUrl: "http://127.0.0.1:8000"
+      })
+    ).toBe("ws://127.0.0.1:8000");
+  });
+
+  it("supports host:port base without protocol", () => {
+    expect(
+      resolveStreamWsBaseUrl({
+        wsBaseUrl: "localhost:9000"
+      })
+    ).toBe("ws://localhost:9000");
+  });
+
+  it("falls back to current origin when env values are invalid", () => {
+    const expectedProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    expect(
+      resolveStreamWsBaseUrl({
+        wsBaseUrl: "::invalid::",
+        apiBaseUrl: "::invalid::"
+      })
+    ).toBe(`${expectedProtocol}//${window.location.host}`);
   });
 });
 

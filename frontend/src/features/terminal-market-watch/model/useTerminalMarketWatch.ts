@@ -715,7 +715,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       previous === "idle" || previous === "disconnected" ? "connecting" : "reconnecting"
     );
 
-    const ws = new WebSocket(buildStreamUrl(accessToken));
+    const ws = new WebSocket(buildStreamUrl(), ["bearer", accessToken]);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -1229,10 +1229,43 @@ function createEmptySnapshot(symbol: string): MarketSnapshot {
   };
 }
 
-function buildStreamUrl(token: string): string {
+function buildStreamUrl(): string {
+  return `${resolveStreamWsBaseUrl()}/api/v1/market-data/stream`;
+}
+
+export function resolveStreamWsBaseUrl(env?: {
+  wsBaseUrl?: string;
+  apiBaseUrl?: string;
+}): string {
+  const candidates = [
+    env?.wsBaseUrl,
+    env?.apiBaseUrl,
+    import.meta.env.VITE_WS_BASE_URL as string | undefined,
+    import.meta.env.VITE_API_BASE_URL as string | undefined
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeWsBaseUrl(candidate);
+    if (normalized) return normalized;
+  }
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const params = new URLSearchParams({ token });
-  return `${protocol}//${window.location.host}/api/v1/market-data/stream?${params.toString()}`;
+  return `${protocol}//${window.location.host}`;
+}
+
+function normalizeWsBaseUrl(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  const candidate = trimmed.includes("://") ? trimmed : `http://${trimmed}`;
+
+  try {
+    const parsed = new URL(candidate);
+    const protocol = parsed.protocol === "https:" || parsed.protocol === "wss:" ? "wss:" : "ws:";
+    return `${protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
 }
 
 function toMillis(value: string): number {

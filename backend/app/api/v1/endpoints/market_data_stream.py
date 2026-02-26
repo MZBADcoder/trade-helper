@@ -31,8 +31,8 @@ async def market_data_stream(
     auth_service: AuthApplicationService = Depends(get_auth_service),
     watchlist_service: WatchlistApplicationService = Depends(get_watchlist_service),
 ) -> None:
-    token, from_cookie = _extract_ws_token(websocket)
-    await websocket.accept()
+    token, from_cookie, accepted_subprotocol = _extract_ws_token(websocket)
+    await websocket.accept(subprotocol=accepted_subprotocol)
     if not token:
         await websocket.close(code=4401, reason="missing token")
         return
@@ -171,27 +171,21 @@ async def market_data_stream(
         await hub.unregister_connection(connection_id=connection_id)
 
 
-def _extract_ws_token(websocket: WebSocket) -> tuple[str | None, bool]:
-    query_token = websocket.query_params.get("token")
-    if query_token:
-        return query_token.strip(), False
-
+def _extract_ws_token(websocket: WebSocket) -> tuple[str | None, bool, str | None]:
     cookie_token = websocket.cookies.get("token") or websocket.cookies.get("access_token")
     if cookie_token:
-        return cookie_token.strip(), True
+        return cookie_token.strip(), True, None
 
     authorization = websocket.headers.get("authorization")
     if authorization and authorization.lower().startswith("bearer "):
-        return authorization.split(" ", maxsplit=1)[1].strip(), False
+        return authorization.split(" ", maxsplit=1)[1].strip(), False, None
 
     subprotocol = websocket.headers.get("sec-websocket-protocol", "")
     if subprotocol:
         segments = [segment.strip() for segment in subprotocol.split(",") if segment.strip()]
         if len(segments) >= 2 and segments[0].lower() in {"bearer", "token"}:
-            return segments[1], False
-        if len(segments) == 1:
-            return segments[0], False
-    return None, False
+            return segments[1], False, segments[0].lower()
+    return None, False, None
 
 
 def _is_ws_origin_allowed(websocket: WebSocket) -> bool:

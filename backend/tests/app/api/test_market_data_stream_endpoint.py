@@ -121,6 +121,15 @@ def test_stream_rejects_missing_token() -> None:
         assert exc_info.value.code == 4401
 
 
+def test_stream_rejects_query_token() -> None:
+    client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
+    with client:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+                websocket.receive_json()
+        assert exc_info.value.code == 4401
+
+
 def test_stream_rejects_cookie_token_without_origin() -> None:
     client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
@@ -155,7 +164,10 @@ def test_stream_status_reports_delayed_message_when_realtime_disabled(
 
     client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            subprotocols=_ws_token_subprotocols("valid-token"),
+        ) as websocket:
             status_payload = websocket.receive_json()
             assert status_payload["type"] == "system.status"
             assert status_payload["data"]["latency"] == "delayed"
@@ -167,7 +179,10 @@ def test_stream_rejects_invalid_token() -> None:
     client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
         with pytest.raises(WebSocketDisconnect) as exc_info:
-            with client.websocket_connect("/api/v1/market-data/stream?token=bad-token") as websocket:
+            with client.websocket_connect(
+                "/api/v1/market-data/stream",
+                subprotocols=_ws_token_subprotocols("bad-token"),
+            ) as websocket:
                 websocket.receive_json()
         assert exc_info.value.code == 4401
 
@@ -175,7 +190,10 @@ def test_stream_rejects_invalid_token() -> None:
 def test_stream_enforces_watchlist_permissions() -> None:
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            subprotocols=_ws_token_subprotocols("valid-token"),
+        ) as websocket:
             status_payload = websocket.receive_json()
             assert status_payload["type"] == "system.status"
 
@@ -200,7 +218,10 @@ def test_stream_rejects_quote_channel_when_realtime_disabled(
 
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            subprotocols=_ws_token_subprotocols("valid-token"),
+        ) as websocket:
             _ = websocket.receive_json()
             websocket.send_json(
                 {
@@ -220,7 +241,10 @@ def test_stream_enforces_symbol_limit_per_connection() -> None:
     client, stream_hub = _build_stream_test_client(watchlist_symbols=symbols)
 
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            subprotocols=_ws_token_subprotocols("valid-token"),
+        ) as websocket:
             _ = websocket.receive_json()
             websocket.send_json(
                 {
@@ -238,7 +262,10 @@ def test_stream_enforces_symbol_limit_per_connection() -> None:
 def test_stream_pushes_quote_trade_aggregate_messages() -> None:
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            subprotocols=_ws_token_subprotocols("valid-token"),
+        ) as websocket:
             _ = websocket.receive_json()
             websocket.send_json(
                 {
@@ -315,7 +342,10 @@ def test_stream_heartbeat_ack_follows_server_ping_window(monkeypatch: pytest.Mon
 
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            subprotocols=_ws_token_subprotocols("valid-token"),
+        ) as websocket:
             status_payload = websocket.receive_json()
             assert status_payload["type"] == "system.status"
 
@@ -334,6 +364,10 @@ def test_stream_heartbeat_ack_follows_server_ping_window(monkeypatch: pytest.Mon
             assert _wait_until(lambda: len(stream_hub.subscription_calls) == 1, timeout_seconds=1.0)
             assert stream_hub.subscription_calls[0]["symbols"] == {"AAPL"}
             assert stream_hub.subscription_calls[0]["channels"] == {"quote"}
+
+
+def _ws_token_subprotocols(token: str) -> list[str]:
+    return ["bearer", token]
 
 
 def _wait_until(predicate: Callable[[], bool], timeout_seconds: float = 0.5) -> bool:
