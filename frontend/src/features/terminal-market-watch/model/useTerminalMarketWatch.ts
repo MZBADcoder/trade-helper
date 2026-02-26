@@ -56,6 +56,11 @@ const MARKET_REALTIME_CONFIG = resolveMarketRealtimeConfig({
   delayMinutes: import.meta.env.VITE_MARKET_DELAY_MINUTES
 });
 
+type StreamWsBaseUrlParams = {
+  wsBaseUrl?: string;
+  apiBaseUrl?: string;
+};
+
 export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const { token, user } = useSession();
   const { realtimeEnabled, delayMinutes } = MARKET_REALTIME_CONFIG;
@@ -1325,8 +1330,44 @@ function createEmptySnapshot(symbol: string): MarketSnapshot {
 }
 
 function buildStreamUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/v1/market-data/stream`;
+  const base = resolveStreamWsBaseUrl({
+    wsBaseUrl: import.meta.env.VITE_MARKET_STREAM_WS_BASE_URL,
+    apiBaseUrl: import.meta.env.VITE_API_BASE_URL
+  });
+  return `${base}/api/v1/market-data/stream`;
+}
+
+export function resolveStreamWsBaseUrl(params: StreamWsBaseUrlParams): string {
+  const fallbackProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const fallback = `${fallbackProtocol}//${window.location.host}`;
+
+  const direct = normalizeWsBaseUrl(params.wsBaseUrl);
+  if (direct) return direct;
+
+  const fromApi = normalizeWsBaseUrl(params.apiBaseUrl);
+  if (fromApi) return fromApi;
+
+  return fallback;
+}
+
+function normalizeWsBaseUrl(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+  const candidate = hasProtocol ? value : `ws://${value}`;
+
+  try {
+    const parsed = new URL(candidate);
+    let protocol = parsed.protocol.toLowerCase();
+    if (protocol === "http:") protocol = "ws:";
+    if (protocol === "https:") protocol = "wss:";
+    if (protocol !== "ws:" && protocol !== "wss:") return null;
+    if (!parsed.host) return null;
+    return `${protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
 }
 
 function toMillis(value: string): number {
