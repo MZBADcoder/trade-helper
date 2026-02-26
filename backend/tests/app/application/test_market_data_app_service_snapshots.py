@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 
 from app.application.market_data.service import MarketDataApplicationService
+from app.application.market_data.trading_calendar import TradingCalendar
+from app.domain.market_data.schemas import MarketBar
 from app.domain.market_data.schemas import MarketSnapshot
 
 
@@ -24,6 +26,23 @@ class FakeUoW:
 
     def rollback(self) -> None:
         return None
+
+
+class FakeSnapshotRepo:
+    def __init__(self, bars_by_ticker: dict[str, list[MarketBar]]) -> None:
+        self._bars_by_ticker = bars_by_ticker
+
+    def list_recent_day_bars(self, *, ticker: str, limit: int = 2) -> list[MarketBar]:
+        items = list(self._bars_by_ticker.get(ticker, []))
+        items.sort(key=lambda bar: bar.start_at)
+        if limit < 1:
+            return []
+        return items[-limit:]
+
+
+class FakeUoWWithRepo(FakeUoW):
+    def __init__(self, repo: FakeSnapshotRepo) -> None:
+        self.market_data_repo = repo
 
 
 class FakeMassiveSnapshotClient:
@@ -173,3 +192,52 @@ def test_list_snapshots_maps_massive_ticker_snapshot_shape() -> None:
     assert item.low == pytest.approx(201.98)
     assert item.volume == 48923112
     assert item.updated_at == datetime(2024, 2, 10, 14, 31, 22, tzinfo=timezone.utc)
+
+
+def test_list_snapshots_uses_db_baseline_for_non_trading_day() -> None:
+    prev_day = MarketBar(
+        ticker="AAPL",
+        timespan="day",
+        multiplier=1,
+        start_at=datetime(2026, 2, 19, 0, 0, tzinfo=timezone.utc),
+        open=198.0,
+        high=202.0,
+        low=197.0,
+        close=200.0,
+        volume=1000,
+    )
+    latest_day = MarketBar(
+        ticker="AAPL",
+        timespan="day",
+        multiplier=1,
+        start_at=datetime(2026, 2, 20, 0, 0, tzinfo=timezone.utc),
+        open=200.0,
+        high=203.0,
+        low=199.0,
+        close=202.0,
+        volume=1200,
+    )
+    repo = FakeSnapshotRepo({"AAPL": [prev_day, latest_day]})
+
+    class ShouldNotCallMassiveClient:
+        def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
+            raise AssertionError(f"Massive should not be called on non-trading day: {tickers}")
+
+    service = MarketDataApplicationService(
+        uow=FakeUoWWithRepo(repo),
+        massive_client=ShouldNotCallMassiveClient(),
+        trading_calendar=TradingCalendar(
+            massive_client=None,
+            today_provider=lambda: date(2026, 2, 22),  # Sunday
+        ),
+    )
+
+    result = service.list_snapshots(tickers=["AAPL"])
+
+    assert len(result) == 1
+    snapshot = result[0]
+    assert snapshot.ticker == "AAPL"
+    assert snapshot.last == pytest.approx(202.0)
+    assert snapshot.change == pytest.approx(2.0)
+    assert snapshot.change_pct == pytest.approx(1.0)
+    assert snapshot.source == "DB"

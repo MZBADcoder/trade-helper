@@ -1,214 +1,40 @@
 import React from "react";
 
-import { buildIndicators, StockChartPanel, type IndicatorBundle, type MarketBar } from "@/entities/market";
-import { TerminalEmptyGraphic } from "@/shared/ui";
+import { StockChartPanel } from "@/entities/market";
 import { type WatchlistItem } from "@/entities/watchlist";
-
 import {
-  buildDemoBars,
-  loadDemoWatchlist,
-  saveDemoWatchlist,
-  type DemoTimeframe
-} from "../lib/demoData";
-
-type DetailSnapshot = {
-  bars: MarketBar[];
-  indicators: IndicatorBundle | null;
-  timeframe: DemoTimeframe | null;
-  loading: boolean;
-  error: string | null;
-  updatedAt: string | null;
-};
-
-const MAX_OPENED_TABS = 5;
-
-const TIMEFRAME_OPTIONS: Array<{ key: DemoTimeframe; label: string }> = [
-  { key: "realtime", label: "Realtime" },
-  { key: "day", label: "Day" },
-  { key: "week", label: "Week" },
-  { key: "month", label: "Month" }
-];
+  MAX_OPENED_TABS,
+  TIMEFRAME_OPTIONS,
+  timeframeLabel,
+  useDemoTerminal,
+} from "@/features/demo-terminal";
+import { TerminalEmptyGraphic } from "@/shared/ui";
 
 export function DemoTerminalPage() {
-  const [watchlist, setWatchlist] = React.useState<WatchlistItem[]>(() => loadDemoWatchlist());
-  const [watchlistBusy, setWatchlistBusy] = React.useState(false);
-  const [watchlistError, setWatchlistError] = React.useState<string | null>(null);
-  const [tickerInput, setTickerInput] = React.useState("");
-
-  const [openTickers, setOpenTickers] = React.useState<string[]>([]);
-  const [activeTicker, setActiveTicker] = React.useState<string | null>(null);
-  const [tabMessage, setTabMessage] = React.useState<string | null>(null);
-
-  const [timeframe, setTimeframe] = React.useState<DemoTimeframe>("day");
-  const [lastStableTicker, setLastStableTicker] = React.useState<string | null>(null);
-
-  const [detailsByTicker, setDetailsByTicker] = React.useState<Record<string, DetailSnapshot>>({});
-  const detailsRef = React.useRef<Record<string, DetailSnapshot>>({});
-  const activeTickerRef = React.useRef<string | null>(null);
-
-  React.useEffect(() => {
-    detailsRef.current = detailsByTicker;
-  }, [detailsByTicker]);
-
-  React.useEffect(() => {
-    activeTickerRef.current = activeTicker;
-  }, [activeTicker]);
-
-  React.useEffect(() => {
-    saveDemoWatchlist(watchlist);
-  }, [watchlist]);
-
-  const refreshWatchlist = React.useCallback(async () => {
-    setWatchlistBusy(true);
-    setWatchlistError(null);
-    await delay(120);
-    setWatchlist(loadDemoWatchlist());
-    setWatchlistBusy(false);
-  }, []);
-
-  const loadTickerDetail = React.useCallback(
-    async (ticker: string, force = false) => {
-      const existing = detailsRef.current[ticker];
-      const isCurrentTimeframe = existing?.timeframe === timeframe;
-      if (!force && isCurrentTimeframe && existing?.bars?.length) {
-        return;
-      }
-
-      setDetailsByTicker((prev) => ({
-        ...prev,
-        [ticker]: {
-          bars: prev[ticker]?.bars ?? [],
-          indicators: prev[ticker]?.indicators ?? null,
-          timeframe,
-          loading: true,
-          error: null,
-          updatedAt: prev[ticker]?.updatedAt ?? null
-        }
-      }));
-
-      await delay(150);
-
-      try {
-        const bars = buildDemoBars(ticker, timeframe);
-        setDetailsByTicker((prev) => ({
-          ...prev,
-          [ticker]: {
-            bars,
-            indicators: buildIndicators(bars),
-            timeframe,
-            loading: false,
-            error: null,
-            updatedAt: new Date().toISOString()
-          }
-        }));
-      } catch (error: any) {
-        setDetailsByTicker((prev) => ({
-          ...prev,
-          [ticker]: {
-            bars: prev[ticker]?.bars ?? [],
-            indicators: prev[ticker]?.indicators ?? null,
-            timeframe,
-            loading: false,
-            error: error?.message ?? `Failed to load ${ticker}`,
-            updatedAt: prev[ticker]?.updatedAt ?? null
-          }
-        }));
-      }
-    },
-    [timeframe]
-  );
-
-  React.useEffect(() => {
-    if (activeTickerRef.current) {
-      void loadTickerDetail(activeTickerRef.current, true);
-    }
-  }, [timeframe, loadTickerDetail]);
-
-  function openTicker(ticker: string) {
-    const normalized = ticker.toUpperCase();
-    setTabMessage(null);
-
-    let blocked = false;
-    setOpenTickers((prev) => {
-      if (prev.includes(normalized)) {
-        return prev;
-      }
-      if (prev.length >= MAX_OPENED_TABS) {
-        blocked = true;
-        return prev;
-      }
-      return [...prev, normalized];
-    });
-
-    if (blocked) {
-      setTabMessage(`Up to ${MAX_OPENED_TABS} detail tabs can be opened at once.`);
-      return;
-    }
-
-    setActiveTicker(normalized);
-    void loadTickerDetail(normalized);
-  }
-
-  function closeTicker(ticker: string) {
-    setOpenTickers((prev) => {
-      const next = prev.filter((item) => item !== ticker);
-      if (activeTickerRef.current === ticker) {
-        setActiveTicker(next[next.length - 1] ?? null);
-      }
-      return next;
-    });
-  }
-
-  function onAddTicker() {
-    const normalized = tickerInput.trim().toUpperCase();
-    if (!normalized) return;
-    if (!/^[A-Z.]{1,10}$/.test(normalized)) {
-      setWatchlistError("Ticker format is invalid.");
-      return;
-    }
-
-    if (watchlist.find((item) => item.ticker === normalized)) {
-      setWatchlistError(`${normalized} already exists in demo watchlist.`);
-      return;
-    }
-
-    setWatchlistError(null);
-    const next = [...watchlist, { ticker: normalized }];
-    setWatchlist(next);
-    setTickerInput("");
-    openTicker(normalized);
-  }
-
-  function onDeleteTicker(ticker: string) {
-    const next = watchlist.filter((item) => item.ticker !== ticker);
-    setWatchlist(next);
-    setOpenTickers((prev) => prev.filter((item) => item !== ticker));
-    if (activeTickerRef.current === ticker) {
-      setActiveTicker(null);
-    }
-  }
-
-  const activeDetail = activeTicker ? detailsByTicker[activeTicker] : null;
-  const activeHasData = Boolean(activeTicker && activeDetail?.bars.length && activeDetail.indicators);
-  const displayTicker = activeTicker ? (activeHasData ? activeTicker : lastStableTicker) : null;
-  const displayDetail = displayTicker ? detailsByTicker[displayTicker] : null;
-  const displayRenderable = displayTicker && displayDetail?.bars.length && displayDetail.indicators
-    ? {
-      ticker: displayTicker,
-      bars: displayDetail.bars,
-      indicators: displayDetail.indicators,
-      updatedAt: displayDetail.updatedAt
-    }
-    : null;
-  const latestBar = displayRenderable?.bars.at(-1);
-  const hasDisplayData = Boolean(displayRenderable);
-  const showRefreshBadge = Boolean(activeTicker && activeDetail?.loading && displayRenderable);
-
-  React.useEffect(() => {
-    if (activeHasData && activeTicker) {
-      setLastStableTicker(activeTicker);
-    }
-  }, [activeHasData, activeTicker]);
+  const {
+    watchlist,
+    watchlistBusy,
+    watchlistError,
+    tickerInput,
+    openTickers,
+    activeTicker,
+    tabMessage,
+    timeframe,
+    activeDetail,
+    displayRenderable,
+    latestBar,
+    hasDisplayData,
+    showRefreshBadge,
+    setTickerInput,
+    setTimeframe,
+    refreshWatchlist,
+    reloadActiveTicker,
+    openTicker,
+    selectTicker,
+    closeTicker,
+    onAddTicker,
+    onDeleteTicker,
+  } = useDemoTerminal();
 
   return (
     <main className="terminalPage">
@@ -271,18 +97,12 @@ export function DemoTerminalPage() {
                   </tr>
                 ) : (
                   watchlist.map((item) => (
-                    <tr key={item.ticker}>
-                      <td>
-                        <button className="watchTicker" type="button" onClick={() => openTicker(item.ticker)}>
-                          {item.ticker}
-                        </button>
-                      </td>
-                      <td>
-                        <button className="btn btnSecondary" type="button" onClick={() => onDeleteTicker(item.ticker)}>
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
+                    <WatchlistRow
+                      key={item.ticker}
+                      item={item}
+                      onOpen={openTicker}
+                      onDelete={onDeleteTicker}
+                    />
                   ))
                 )}
               </tbody>
@@ -296,11 +116,7 @@ export function DemoTerminalPage() {
             {activeTicker ? (
               <div className="panelMeta row">
                 <span>{activeTicker}</span>
-                <button
-                  className="btn btnSecondary"
-                  type="button"
-                  onClick={() => void loadTickerDetail(activeTicker, true)}
-                >
+                <button className="btn btnSecondary" type="button" onClick={reloadActiveTicker}>
                   Reload
                 </button>
               </div>
@@ -330,10 +146,7 @@ export function DemoTerminalPage() {
                     key={ticker}
                     type="button"
                     className={`tabChip ${ticker === activeTicker ? "tabChipActive" : ""}`}
-                    onClick={() => {
-                      setActiveTicker(ticker);
-                      void loadTickerDetail(ticker);
-                    }}
+                    onClick={() => selectTicker(ticker)}
                   >
                     {ticker}
                     <span
@@ -363,14 +176,18 @@ export function DemoTerminalPage() {
               </div>
             )}
 
-            {activeTicker && activeDetail?.loading && !hasDisplayData ? <div className="muted">Loading demo bars and indicators...</div> : null}
+            {activeTicker && activeDetail?.loading && !hasDisplayData ? (
+              <div className="muted">Loading demo bars and indicators...</div>
+            ) : null}
             {activeTicker && activeDetail?.error ? <div className="errorText">{activeDetail.error}</div> : null}
 
             {displayRenderable ? (
               <div className="detailRenderStack">
                 {showRefreshBadge ? (
                   <div className="detailLoadingBadge">
-                    {activeTicker !== displayRenderable.ticker ? `Loading ${activeTicker}, showing ${displayRenderable.ticker}` : `Refreshing ${activeTicker}`}
+                    {activeTicker !== displayRenderable.ticker
+                      ? `Loading ${activeTicker}, showing ${displayRenderable.ticker}`
+                      : `Refreshing ${activeTicker}`}
                   </div>
                 ) : null}
                 <div className="metricRow">
@@ -392,6 +209,29 @@ export function DemoTerminalPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+type WatchlistRowProps = {
+  item: WatchlistItem;
+  onOpen: (ticker: string) => void;
+  onDelete: (ticker: string) => void;
+};
+
+function WatchlistRow({ item, onOpen, onDelete }: WatchlistRowProps) {
+  return (
+    <tr>
+      <td>
+        <button className="watchTicker" type="button" onClick={() => onOpen(item.ticker)}>
+          {item.ticker}
+        </button>
+      </td>
+      <td>
+        <button className="btn btnSecondary" type="button" onClick={() => onDelete(item.ticker)}>
+          Remove
+        </button>
+      </td>
+    </tr>
   );
 }
 
@@ -419,14 +259,4 @@ function toVolume(value: number | undefined): string {
 function formatTime(value: string | null): string {
   if (!value) return "-";
   return new Date(value).toLocaleTimeString();
-}
-
-function timeframeLabel(timeframe: DemoTimeframe): string {
-  return TIMEFRAME_OPTIONS.find((item) => item.key === timeframe)?.label ?? timeframe;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
 }

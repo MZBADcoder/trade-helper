@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-import time
-from typing import Any, Callable
+import threading
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -12,6 +12,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.api.deps import get_auth_service, get_market_stream_hub, get_watchlist_service
 from app.api.errors import install_api_error_handlers
+from app.api.v1.endpoints import market_data_stream as stream_endpoint
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.domain.auth.schemas import User
@@ -52,6 +53,7 @@ class FakeStreamHub:
         self.unregistered_connections: set[str] = set()
         self._queues: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._status_message: str | None = None
+        self._subscription_updated = threading.Event()
 
     def current_latency(self) -> str:
         return "delayed"
@@ -86,10 +88,14 @@ class FakeStreamHub:
                 "channels": set(channels),
             }
         )
+        self._subscription_updated.set()
 
     def push(self, payload: dict[str, Any]) -> None:
         for queue in self._queues.values():
             queue.put_nowait(payload)
+
+    def wait_for_subscription(self, *, timeout_seconds: float = 0.5) -> bool:
+        return self._subscription_updated.wait(timeout_seconds)
 
 
 def _build_stream_test_client(
@@ -110,6 +116,10 @@ def _build_stream_test_client(
     app.dependency_overrides[get_market_stream_hub] = lambda: stream_hub
 
     return TestClient(app), stream_hub
+
+
+def _bearer_ws_headers(*, token: str) -> dict[str, str]:
+    return {"sec-websocket-protocol": f"bearer, {token}"}
 
 
 def test_stream_rejects_missing_token() -> None:
@@ -155,7 +165,10 @@ def test_stream_status_reports_delayed_message_when_realtime_disabled(
 
     client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            headers=_bearer_ws_headers(token="valid-token"),
+        ) as websocket:
             status_payload = websocket.receive_json()
             assert status_payload["type"] == "system.status"
             assert status_payload["data"]["latency"] == "delayed"
@@ -163,11 +176,36 @@ def test_stream_status_reports_delayed_message_when_realtime_disabled(
             assert status_payload["data"]["message"] == "delayed 15min"
 
 
+def test_stream_unregisters_connection_when_initial_send_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def broken_send(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        raise RuntimeError("send failed")
+
+    monkeypatch.setattr(stream_endpoint, "_send_ws_json", broken_send)
+
+    client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
+    with client:
+        with pytest.raises(RuntimeError, match="send failed"):
+            with client.websocket_connect(
+                "/api/v1/market-data/stream",
+                headers=_bearer_ws_headers(token="valid-token"),
+            ) as websocket:
+                websocket.receive_json()
+
+    assert stream_hub.registered_connections
+    assert stream_hub.registered_connections == stream_hub.unregistered_connections
+
+
 def test_stream_rejects_invalid_token() -> None:
     client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
         with pytest.raises(WebSocketDisconnect) as exc_info:
-            with client.websocket_connect("/api/v1/market-data/stream?token=bad-token") as websocket:
+            with client.websocket_connect(
+                "/api/v1/market-data/stream",
+                headers=_bearer_ws_headers(token="bad-token"),
+            ) as websocket:
                 websocket.receive_json()
         assert exc_info.value.code == 4401
 
@@ -175,7 +213,10 @@ def test_stream_rejects_invalid_token() -> None:
 def test_stream_enforces_watchlist_permissions() -> None:
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            headers=_bearer_ws_headers(token="valid-token"),
+        ) as websocket:
             status_payload = websocket.receive_json()
             assert status_payload["type"] == "system.status"
 
@@ -200,7 +241,10 @@ def test_stream_rejects_quote_channel_when_realtime_disabled(
 
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            headers=_bearer_ws_headers(token="valid-token"),
+        ) as websocket:
             _ = websocket.receive_json()
             websocket.send_json(
                 {
@@ -220,7 +264,10 @@ def test_stream_enforces_symbol_limit_per_connection() -> None:
     client, stream_hub = _build_stream_test_client(watchlist_symbols=symbols)
 
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            headers=_bearer_ws_headers(token="valid-token"),
+        ) as websocket:
             _ = websocket.receive_json()
             websocket.send_json(
                 {
@@ -238,7 +285,10 @@ def test_stream_enforces_symbol_limit_per_connection() -> None:
 def test_stream_pushes_quote_trade_aggregate_messages() -> None:
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            headers=_bearer_ws_headers(token="valid-token"),
+        ) as websocket:
             _ = websocket.receive_json()
             websocket.send_json(
                 {
@@ -247,7 +297,7 @@ def test_stream_pushes_quote_trade_aggregate_messages() -> None:
                     "channels": ["quote", "trade", "aggregate"],
                 }
             )
-            assert _wait_until(lambda: len(stream_hub.subscription_calls) == 1)
+            assert stream_hub.wait_for_subscription(timeout_seconds=1.0)
             assert stream_hub.subscription_calls[0]["symbols"] == {"AAPL"}
             assert stream_hub.subscription_calls[0]["channels"] == {"quote", "trade", "aggregate"}
 
@@ -309,13 +359,16 @@ def test_stream_pushes_quote_trade_aggregate_messages() -> None:
 
 
 def test_stream_heartbeat_ack_follows_server_ping_window(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "market_stream_ping_interval_seconds", 2)
-    monkeypatch.setattr(settings, "market_stream_ping_timeout_seconds", 1)
+    monkeypatch.setattr(settings, "market_stream_ping_interval_seconds", 0.05)
+    monkeypatch.setattr(settings, "market_stream_ping_timeout_seconds", 0.05)
     monkeypatch.setattr(settings, "market_stream_ping_max_misses", 2)
 
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
-        with client.websocket_connect("/api/v1/market-data/stream?token=valid-token") as websocket:
+        with client.websocket_connect(
+            "/api/v1/market-data/stream",
+            headers=_bearer_ws_headers(token="valid-token"),
+        ) as websocket:
             status_payload = websocket.receive_json()
             assert status_payload["type"] == "system.status"
 
@@ -331,18 +384,9 @@ def test_stream_heartbeat_ack_follows_server_ping_window(monkeypatch: pytest.Mon
                     "channels": ["quote"],
                 }
             )
-            assert _wait_until(lambda: len(stream_hub.subscription_calls) == 1, timeout_seconds=1.0)
+            assert stream_hub.wait_for_subscription(timeout_seconds=0.5)
             assert stream_hub.subscription_calls[0]["symbols"] == {"AAPL"}
             assert stream_hub.subscription_calls[0]["channels"] == {"quote"}
-
-
-def _wait_until(predicate: Callable[[], bool], timeout_seconds: float = 0.5) -> bool:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.01)
-    return bool(predicate())
 
 
 def _index_to_symbol(index: int) -> str:

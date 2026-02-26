@@ -25,4 +25,6 @@
 - [ ] FE-MW-V2：评估 options chain 大表渲染方案（分页 vs 虚拟滚动）并给出性能基线。
 - [x] FE-MW-V2：对齐 minute 粒度（`1m/5m/15m/60m`，10 个交易日边界），并在详情区展示 bars 的 `X-Data-Source`。
 - [x] FE-MW-V2：K 线支持 `300/500/1000` 缩放、鼠标横向平移，以及左边界自动补拉历史（`1m` 按 3 天窗口补拉）。
-- [ ] FE-MW-V2（P2）：分钟级 K 线交易日判定当前仅排除周末，后续补充更精确控制（交易所休市日历或基于后端返回数据的无数据日识别）。
+- [x] FE-MW-V2（P2）：分钟级 K 线交易日判定已改为后端交易日接口（历史基于 XNYS 日历，今天/未来叠加 Massive holidays 覆盖），不再由前端用 weekday 近似。
+- [ ] BE-TRADING-CALENDAR 收尾：补充 `market_status` 的“临时停市/异常交易日”覆盖策略与监控告警，避免仅依赖 upcoming holidays。
+- [ ] MARKET-SNAPSHOTS 优化：将交易日盘中 watchlist 的 `change/change_pct` 改为“WS 最新价 + DB `prev_close` 实时重算”全链路口径（当前已完成非交易日 DB 基准回退）。

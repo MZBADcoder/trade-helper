@@ -12,8 +12,11 @@ from app.api.v1.dto.market_data import (
     MarketBarsRequest,
     MarketSnapshotsOut,
     MarketSnapshotsRequest,
+    MarketTradingDaysOut,
+    MarketTradingDaysRequest,
     parse_market_bars_request,
     parse_market_snapshots_request,
+    parse_market_trading_days_request,
 )
 from app.api.v1.dto.mappers import to_market_bar_out, to_market_snapshot_out
 from app.application.market_data.errors import (
@@ -80,6 +83,23 @@ def list_snapshots(
     try:
         snapshots = service.list_snapshots(tickers=request.tickers)
         return MarketSnapshotsOut(items=[to_market_snapshot_out(snapshot) for snapshot in snapshots])
+    except ValueError as exc:
+        _raise_market_data_service_error(exc)
+
+
+@router.get("/trading-days", response_model=MarketTradingDaysOut)
+def list_trading_days(
+    request: MarketTradingDaysRequest = Depends(parse_market_trading_days_request),
+    service: MarketDataApplicationService = Depends(get_market_data_service),
+    current_user: User = Depends(get_current_user),
+) -> MarketTradingDaysOut:
+    _ = current_user
+    try:
+        days = service.list_trading_days(
+            end_date=request.end_date,
+            count=request.count,
+        )
+        return MarketTradingDaysOut(items=[item.isoformat() for item in days])
     except ValueError as exc:
         _raise_market_data_service_error(exc)
 

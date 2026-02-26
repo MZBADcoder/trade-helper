@@ -37,5 +37,8 @@ def delete_watchlist_item(
     service: WatchlistApplicationService = Depends(get_watchlist_service),
     current_user: User = Depends(get_current_user),
 ) -> WatchlistItemDeletedOut:
-    service.remove_item(user_id=current_user.id, ticker=ticker)
-    return to_watchlist_item_deleted_out(ticker)
+    try:
+        service.remove_item(user_id=current_user.id, ticker=ticker)
+        return to_watchlist_item_deleted_out(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

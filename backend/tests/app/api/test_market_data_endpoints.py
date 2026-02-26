@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from app.application.market_data.errors import MarketDataRangeTooLargeError
 
 
@@ -53,6 +55,28 @@ def test_bars_rejects_invalid_timespan(api_client) -> None:
     assert response.json()["error"]["code"] == "MARKET_DATA_INVALID_TIMESPAN"
 
 
+def test_bars_rejects_invalid_symbol_format(api_client) -> None:
+    bad_ticker = api_client.get(
+        "/api/v1/market-data/bars",
+        params={
+            "ticker": "AAPL/../../etc/passwd",
+            "timespan": "day",
+        },
+    )
+    bad_option_ticker = api_client.get(
+        "/api/v1/market-data/bars",
+        params={
+            "option_ticker": "O:AAPL/../../BAD",
+            "timespan": "day",
+        },
+    )
+
+    assert bad_ticker.status_code == 400
+    assert bad_ticker.json()["error"]["code"] == "MARKET_DATA_INVALID_SYMBOL"
+    assert bad_option_ticker.status_code == 400
+    assert bad_option_ticker.json()["error"]["code"] == "MARKET_DATA_INVALID_SYMBOL"
+
+
 def test_bars_rejects_invalid_date_range(api_client) -> None:
     response = api_client.get(
         "/api/v1/market-data/bars",
@@ -104,3 +128,18 @@ def test_bars_success_sets_contract_headers(api_client, market_data_service) -> 
     assert response.headers["X-Data-Source"] in {"REST", "DB", "DB_AGG", "DB_AGG_MIXED"}
     assert response.headers["X-Partial-Range"] in {"true", "false"}
     assert market_data_service.list_bars_calls[0]["ticker"] == "AAPL"
+
+
+def test_trading_days_returns_iso_dates(api_client, market_data_service) -> None:
+    response = api_client.get(
+        "/api/v1/market-data/trading-days",
+        params={
+            "end": "2026-02-24",
+            "count": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {"items": ["2026-02-24"]}
+    assert market_data_service.list_trading_days_calls == [{"end_date": date(2026, 2, 24), "count": 3}]

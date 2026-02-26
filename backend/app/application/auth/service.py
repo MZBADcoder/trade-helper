@@ -10,7 +10,9 @@ from app.core.security import (
     normalize_email,
     verify_password,
 )
+from app.application.auth.login_throttle import AuthLoginThrottle
 from app.domain.auth.constants import (
+    ERROR_AUTH_RATE_LIMITED,
     ERROR_EMAIL_ALREADY_REGISTERED,
     ERROR_INVALID_EMAIL_OR_PASSWORD,
     ERROR_INVALID_TOKEN,
@@ -22,8 +24,14 @@ from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 
 class AuthApplicationService:
-    def __init__(self, *, uow: SqlAlchemyUnitOfWork) -> None:
+    def __init__(
+        self,
+        *,
+        uow: SqlAlchemyUnitOfWork,
+        login_throttle: AuthLoginThrottle | None = None,
+    ) -> None:
         self._uow = uow
+        self._login_throttle = login_throttle or AuthLoginThrottle()
 
     def register(self, *, email: str, password: str) -> User:
         normalized_email = normalize_email(email)
@@ -41,7 +49,21 @@ class AuthApplicationService:
             return user
 
     def login(self, *, email: str, password: str) -> AccessToken:
-        user = self._authenticate(email=email, password=password)
+        normalized_email = normalize_email(email)
+        self._login_throttle.assert_allowed(key=normalized_email)
+        try:
+            user = self._authenticate(email=email, password=password)
+        except ValueError as exc:
+            detail = str(exc)
+            if detail == ERROR_INVALID_EMAIL_OR_PASSWORD:
+                self._login_throttle.record_failure(key=normalized_email)
+                try:
+                    self._login_throttle.assert_allowed(key=normalized_email)
+                except ValueError:
+                    raise ValueError(ERROR_AUTH_RATE_LIMITED) from exc
+            raise
+
+        self._login_throttle.record_success(key=normalized_email)
         expires_in = settings.auth_access_token_expire_days * 24 * 60 * 60
         token = create_access_token(
             subject=str(user.id),

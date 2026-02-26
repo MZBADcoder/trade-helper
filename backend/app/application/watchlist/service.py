@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from app.application.market_data.service import MarketDataApplicationService
 from app.domain.watchlist.schemas import WatchlistItem
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 logger = logging.getLogger(__name__)
+_TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 
 
 class WatchlistApplicationService:
@@ -61,6 +63,8 @@ def _normalize_ticker(ticker: str) -> str:
     normalized = ticker.strip().upper()
     if not normalized:
         raise ValueError("Ticker is required")
+    if not _TICKER_PATTERN.fullmatch(normalized):
+        raise ValueError("Ticker format is invalid")
     return normalized
 
 

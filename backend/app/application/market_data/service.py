@@ -14,6 +14,7 @@ from app.application.market_data.policy import (
     normalize_timespan,
 )
 from app.application.market_data.snapshot_mapper import to_market_snapshot
+from app.application.market_data.trading_calendar import TradingCalendar
 from app.core.config import settings
 from app.domain.market_data.aggregation import (
     MARKET_CLOSE_TIME,
@@ -52,15 +53,23 @@ class _BarsQuery:
     limit: int | None
 
 
+@dataclass(slots=True)
+class _DailySnapshotBaseline:
+    snapshot: MarketSnapshot
+    prev_close: float | None
+
+
 class MarketDataApplicationService:
     def __init__(
         self,
         *,
         uow: SqlAlchemyUnitOfWork,
         massive_client: MassiveClient | None = None,
+        trading_calendar: TradingCalendar | None = None,
     ) -> None:
         self._uow = uow
         self._massive_client = massive_client
+        self._trading_calendar = trading_calendar or TradingCalendar(massive_client=massive_client)
 
     def list_bars(
         self,
@@ -103,6 +112,7 @@ class MarketDataApplicationService:
             end_date=end_date,
             limit=limit,
             enforce_range_limit=enforce_range_limit,
+            trading_calendar=self._trading_calendar,
         )
 
         if query.timespan == "day" and query.multiplier == 1:
@@ -120,7 +130,10 @@ class MarketDataApplicationService:
 
         today = date.today()
         daily_start = today - timedelta(days=settings.market_data_daily_lookback_days)
-        intraday_start = today - timedelta(days=settings.market_data_intraday_lookback_days)
+        intraday_start = self._trading_calendar.shift_trading_day(
+            target_date=today,
+            trading_days=-(settings.market_data_intraday_lookback_days - 1),
+        )
 
         self.list_bars(
             ticker=normalized,
@@ -139,20 +152,52 @@ class MarketDataApplicationService:
 
     def list_snapshots(self, *, tickers: list[str]) -> list[MarketSnapshot]:
         normalized_tickers = _normalize_tickers(tickers=tickers)
-        if self._massive_client is None:
+        baselines = self._list_daily_snapshot_baselines(tickers=normalized_tickers)
+        snapshots_by_symbol = {symbol: baseline.snapshot for symbol, baseline in baselines.items()}
+
+        today = date.today()
+        today_is_trading_day = self._trading_calendar.is_trading_day(target_date=today)
+        missing_symbols = [symbol for symbol in normalized_tickers if symbol not in snapshots_by_symbol]
+        should_fetch_massive = self._massive_client is not None and (
+            today_is_trading_day or bool(missing_symbols)
+        )
+
+        if should_fetch_massive:
+            request_tickers = normalized_tickers if today_is_trading_day else missing_symbols
+            try:
+                payload = self._massive_client.list_snapshots(tickers=request_tickers)
+            except Exception as exc:
+                if not snapshots_by_symbol:
+                    raise _map_market_data_upstream_error(exc) from exc
+            else:
+                for item in payload:
+                    mapped = to_market_snapshot(item)
+                    if mapped is None:
+                        continue
+                    baseline = baselines.get(mapped.ticker)
+                    snapshots_by_symbol[mapped.ticker] = _merge_snapshot(
+                        baseline=baseline,
+                        upstream=mapped,
+                        today_is_trading_day=today_is_trading_day,
+                    )
+        elif not snapshots_by_symbol:
             raise MarketDataUpstreamUnavailableError()
 
-        try:
-            payload = self._massive_client.list_snapshots(tickers=normalized_tickers)
-        except Exception as exc:
-            raise _map_market_data_upstream_error(exc) from exc
+        return [snapshots_by_symbol[symbol] for symbol in normalized_tickers if symbol in snapshots_by_symbol]
 
-        snapshots: list[MarketSnapshot] = []
-        for item in payload:
-            mapped = to_market_snapshot(item)
-            if mapped is not None:
-                snapshots.append(mapped)
-        return snapshots
+    def list_trading_days(
+        self,
+        *,
+        end_date: date | None,
+        count: int,
+    ) -> list[date]:
+        if count < 1:
+            raise ValueError("count must be >= 1")
+        resolved_end = end_date or date.today()
+        return self._trading_calendar.list_recent_trading_days(
+            end_date=resolved_end,
+            count=count,
+        )
 
     def precompute_minute_aggregates(
         self,
@@ -168,7 +213,10 @@ class MarketDataApplicationService:
 
         now = now or datetime.now(tz=timezone.utc)
         end_at = now
-        keep_from_trade_date = market_trade_date(point=now) - timedelta(days=lookback_trade_days - 1)
+        keep_from_trade_date = self._trading_calendar.shift_trading_day(
+            target_date=market_trade_date(point=now),
+            trading_days=-(lookback_trade_days - 1),
+        )
         start_at = datetime.combine(keep_from_trade_date, time.min, tzinfo=timezone.utc)
 
         with self._uow as uow:
@@ -242,8 +290,18 @@ class MarketDataApplicationService:
             }
 
     @staticmethod
-    def _default_start_date(*, timespan: str, end_date: date) -> date:
+    def _default_start_date(
+        *,
+        timespan: str,
+        end_date: date,
+        trading_calendar: TradingCalendar | None = None,
+    ) -> date:
         if timespan.strip().lower() == "minute":
+            if trading_calendar is not None:
+                return trading_calendar.shift_trading_day(
+                    target_date=end_date,
+                    trading_days=-(settings.market_data_intraday_lookback_days - 1),
+                )
             return end_date - timedelta(days=settings.market_data_intraday_lookback_days)
         return end_date - timedelta(days=settings.market_data_daily_lookback_days)
 
@@ -341,7 +399,9 @@ class MarketDataApplicationService:
                 limit=None,
             )
 
-            mixed_bucket = resolve_current_open_bucket(now=now, multiplier=query.multiplier)
+            mixed_bucket = None
+            if self._trading_calendar.is_trading_day(target_date=market_trade_date(point=now)):
+                mixed_bucket = resolve_current_open_bucket(now=now, multiplier=query.multiplier)
             realtime_item: MarketBar | None = None
             if mixed_bucket is not None:
                 bucket_start, bucket_end = mixed_bucket
@@ -455,6 +515,101 @@ class MarketDataApplicationService:
             aggregates=aggregates,
         )
 
+    def _list_daily_snapshot_baselines(self, *, tickers: list[str]) -> dict[str, _DailySnapshotBaseline]:
+        baselines: dict[str, _DailySnapshotBaseline] = {}
+        with self._uow as uow:
+            repo = getattr(uow, "market_data_repo", None)
+            if repo is None:
+                return baselines
+
+            for symbol in tickers:
+                list_recent = getattr(repo, "list_recent_day_bars", None)
+                if list_recent is None:
+                    continue
+                day_bars = list_recent(ticker=symbol, limit=2)
+                if not day_bars:
+                    continue
+
+                latest = day_bars[-1]
+                previous = day_bars[-2] if len(day_bars) > 1 else None
+                prev_close = previous.close if previous is not None else None
+                change, change_pct = _calc_change(
+                    current=latest.close,
+                    previous=prev_close,
+                )
+                baselines[symbol] = _DailySnapshotBaseline(
+                    snapshot=MarketSnapshot(
+                        ticker=symbol,
+                        last=latest.close,
+                        change=change,
+                        change_pct=change_pct,
+                        open=latest.open,
+                        high=latest.high,
+                        low=latest.low,
+                        volume=int(latest.volume),
+                        updated_at=latest.start_at,
+                        market_status="closed",
+                        source="DB",
+                    ),
+                    prev_close=prev_close,
+                )
+        return baselines
+
+
+def _merge_snapshot(
+    *,
+    baseline: _DailySnapshotBaseline | None,
+    upstream: MarketSnapshot,
+    today_is_trading_day: bool,
+) -> MarketSnapshot:
+    if baseline is None:
+        return upstream
+
+    if not today_is_trading_day:
+        last = upstream.last if upstream.last > 0 else baseline.snapshot.last
+        return MarketSnapshot(
+            ticker=upstream.ticker,
+            last=last,
+            change=baseline.snapshot.change,
+            change_pct=baseline.snapshot.change_pct,
+            open=baseline.snapshot.open,
+            high=baseline.snapshot.high,
+            low=baseline.snapshot.low,
+            volume=baseline.snapshot.volume,
+            updated_at=max(upstream.updated_at, baseline.snapshot.updated_at),
+            market_status=upstream.market_status,
+            source=upstream.source,
+        )
+
+    if baseline.prev_close is not None and upstream.last > 0 and upstream.change == 0 and upstream.change_pct == 0:
+        change, change_pct = _calc_change(
+            current=upstream.last,
+            previous=baseline.prev_close,
+        )
+        return MarketSnapshot(
+            ticker=upstream.ticker,
+            last=upstream.last,
+            change=change,
+            change_pct=change_pct,
+            open=upstream.open,
+            high=upstream.high,
+            low=upstream.low,
+            volume=upstream.volume,
+            updated_at=upstream.updated_at,
+            market_status=upstream.market_status,
+            source=upstream.source,
+        )
+
+    return upstream
+
+
+def _calc_change(*, current: float, previous: float | None) -> tuple[float, float]:
+    if previous is None or previous == 0:
+        return 0.0, 0.0
+    change = current - previous
+    change_pct = (change / previous) * 100
+    return change, change_pct
+
 
 def _build_bars_query(
     *,
@@ -465,12 +620,17 @@ def _build_bars_query(
     end_date: date | None,
     limit: int | None,
     enforce_range_limit: bool,
+    trading_calendar: TradingCalendar | None,
 ) -> _BarsQuery:
     has_explicit_start = start_date is not None
     if end_date is None:
         end_date = date.today()
     if start_date is None:
-        start_date = MarketDataApplicationService._default_start_date(timespan=timespan, end_date=end_date)
+        start_date = MarketDataApplicationService._default_start_date(
+            timespan=timespan,
+            end_date=end_date,
+            trading_calendar=trading_calendar,
+        )
 
     normalized_ticker = ticker.strip().upper()
     if not normalized_ticker:
@@ -490,6 +650,7 @@ def _build_bars_query(
             multiplier=multiplier,
             start_date=start_date,
             end_date=end_date,
+            trading_calendar=trading_calendar,
         ):
             raise MarketDataRangeTooLargeError()
 

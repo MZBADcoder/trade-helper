@@ -3,20 +3,39 @@ import { type WatchlistItem } from "@/entities/watchlist";
 
 export type DemoTimeframe = "realtime" | "day" | "week" | "month";
 
+export type DemoStorage = Pick<Storage, "getItem" | "setItem">;
+
+export type DemoDataEnvironment = {
+  now: () => Date;
+  storage: DemoStorage | null;
+};
+
 export const DEFAULT_DEMO_WATCHLIST: WatchlistItem[] = [
   { ticker: "AAPL" },
   { ticker: "NVDA" },
   { ticker: "TSLA" },
   { ticker: "MSFT" },
-  { ticker: "SPY" }
+  { ticker: "SPY" },
 ];
 
-export function loadDemoWatchlist(): WatchlistItem[] {
+const DEMO_WATCHLIST_STORAGE_KEY = "trader_helper_demo_watchlist";
+
+export function defaultDemoDataEnvironment(): DemoDataEnvironment {
   if (typeof window === "undefined") {
-    return DEFAULT_DEMO_WATCHLIST;
+    return {
+      now: () => new Date(),
+      storage: null,
+    };
   }
 
-  const raw = window.localStorage.getItem("trader_helper_demo_watchlist");
+  return {
+    now: () => new Date(),
+    storage: window.localStorage,
+  };
+}
+
+export function loadDemoWatchlist(env: DemoDataEnvironment = defaultDemoDataEnvironment()): WatchlistItem[] {
+  const raw = env.storage?.getItem(DEMO_WATCHLIST_STORAGE_KEY);
   if (!raw) {
     return DEFAULT_DEMO_WATCHLIST;
   }
@@ -33,12 +52,18 @@ export function loadDemoWatchlist(): WatchlistItem[] {
   }
 }
 
-export function saveDemoWatchlist(items: WatchlistItem[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem("trader_helper_demo_watchlist", JSON.stringify(items));
+export function saveDemoWatchlist(
+  items: WatchlistItem[],
+  env: DemoDataEnvironment = defaultDemoDataEnvironment(),
+): void {
+  env.storage?.setItem(DEMO_WATCHLIST_STORAGE_KEY, JSON.stringify(items));
 }
 
-export function buildDemoBars(ticker: string, timeframe: DemoTimeframe): MarketBar[] {
+export function buildDemoBars(
+  ticker: string,
+  timeframe: DemoTimeframe,
+  nowProvider: () => Date = () => new Date(),
+): MarketBar[] {
   const config = timeframeConfig(timeframe);
 
   const normalized = ticker.toUpperCase();
@@ -46,7 +71,7 @@ export function buildDemoBars(ticker: string, timeframe: DemoTimeframe): MarketB
   const rand = seededRandom(seed);
   const bars: MarketBar[] = [];
 
-  const baseDate = new Date();
+  const baseDate = nowProvider();
   if (timeframe === "realtime") {
     baseDate.setUTCSeconds(0, 0);
   } else {
@@ -85,7 +110,7 @@ export function buildDemoBars(ticker: string, timeframe: DemoTimeframe): MarketB
       close: round2(close),
       volume: Math.round(volume),
       vwap: round2((open + high + low + close) / 4),
-      trades: Math.round(config.baseTrades + rand() * config.tradeJitter)
+      trades: Math.round(config.baseTrades + rand() * config.tradeJitter),
     });
   }
 
@@ -126,7 +151,7 @@ function timeframeConfig(timeframe: DemoTimeframe): DemoTimeframeConfig {
         baseVolume: 280000,
         volumeJitter: 120000,
         baseTrades: 800,
-        tradeJitter: 2500
+        tradeJitter: 2500,
       };
     case "week":
       return {
@@ -143,7 +168,7 @@ function timeframeConfig(timeframe: DemoTimeframe): DemoTimeframeConfig {
         baseVolume: 3500000,
         volumeJitter: 1400000,
         baseTrades: 5000,
-        tradeJitter: 18000
+        tradeJitter: 18000,
       };
     case "month":
       return {
@@ -160,7 +185,7 @@ function timeframeConfig(timeframe: DemoTimeframe): DemoTimeframeConfig {
         baseVolume: 4200000,
         volumeJitter: 1800000,
         baseTrades: 6200,
-        tradeJitter: 22000
+        tradeJitter: 22000,
       };
     case "day":
     default:
@@ -178,7 +203,7 @@ function timeframeConfig(timeframe: DemoTimeframe): DemoTimeframeConfig {
         baseVolume: 1200000,
         volumeJitter: 500000,
         baseTrades: 3000,
-        tradeJitter: 20000
+        tradeJitter: 20000,
       };
   }
 }

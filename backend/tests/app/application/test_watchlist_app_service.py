@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.application.watchlist.service import WatchlistApplicationService
 from app.domain.watchlist.schemas import WatchlistItem
 
@@ -66,3 +68,23 @@ def test_add_item_triggers_market_data_prefetch() -> None:
 
     assert item.ticker == "AAPL"
     assert market_data.prefetched == ["AAPL"]
+
+
+def test_add_item_rejects_invalid_ticker_format() -> None:
+    repo = FakeWatchlistRepository()
+    service = WatchlistApplicationService(
+        uow=FakeUoW(watchlist_repo=repo),
+    )
+
+    with pytest.raises(ValueError, match="Ticker format is invalid"):
+        service.add_item(user_id=1, ticker="AAPL;DROP")
+
+
+def test_remove_item_rejects_invalid_ticker_format() -> None:
+    repo = FakeWatchlistRepository()
+    service = WatchlistApplicationService(
+        uow=FakeUoW(watchlist_repo=repo),
+    )
+
+    with pytest.raises(ValueError, match="Ticker format is invalid"):
+        service.remove_item(user_id=1, ticker="AAPL;DROP")

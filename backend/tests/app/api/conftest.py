@@ -119,6 +119,7 @@ class FakeMarketDataService:
     def __init__(self) -> None:
         self.list_bars_calls: list[dict] = []
         self.list_snapshots_calls: list[list[str]] = []
+        self.list_trading_days_calls: list[dict] = []
         self.bars_data_source = "DB_AGG_MIXED"
         self.bars_partial_range = False
         self.bars_error: Exception | None = None
@@ -208,6 +209,16 @@ class FakeMarketDataService:
             data_source=self.bars_data_source,
             partial_range=self.bars_partial_range,
         )
+
+    def list_trading_days(
+        self,
+        *,
+        end_date: date | None,
+        count: int,
+    ) -> list[date]:
+        self.list_trading_days_calls.append({"end_date": end_date, "count": count})
+        base = end_date or date(2026, 2, 24)
+        return [base]
 
 
 class FakeOptionsService:

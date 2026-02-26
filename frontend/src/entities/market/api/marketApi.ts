@@ -12,6 +12,12 @@ type MarketQuery = {
   limit?: number;
 };
 
+type TradingDaysQuery = {
+  token: string;
+  end?: string;
+  count: number;
+};
+
 export async function listMarketBars(params: MarketQuery): Promise<MarketBar[]> {
   const payload = await apiRequest<MarketBar[] | undefined>("/market-data/bars", {
     token: params.token,
@@ -58,4 +64,15 @@ export async function listMarketSnapshots(token: string, tickers: string[]): Pro
     }
   });
   return payload.items;
+}
+
+export async function listTradingDays(params: TradingDaysQuery): Promise<string[]> {
+  const payload = await apiRequest<{ items: string[] }>("/market-data/trading-days", {
+    token: params.token,
+    query: {
+      end: params.end,
+      count: params.count
+    }
+  });
+  return payload.items ?? [];
 }

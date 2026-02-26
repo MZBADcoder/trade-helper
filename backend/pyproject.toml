@@ -17,6 +17,7 @@ psycopg = {version = "^3.1.18", extras = ["binary"]}
 massive = "^2.0.0"
 python-dotenv = "^1.0.1"
 alembic = "^1.13.2"
+exchange-calendars = "^4.5.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.1.0"
