@@ -83,6 +83,48 @@ Dependency wiring lives in:
 
 `api/deps.py` can resolve from container, but should not construct infra details inline.
 
+## Frontend Guardrails (React + TypeScript, Feature-Sliced)
+
+Applies to all code under `frontend/src`.
+
+### 1) Layer direction
+
+Dependency direction must be:
+
+`app -> pages -> widgets -> features -> entities -> shared`
+
+Upper layers can depend on lower layers only.
+No upward imports.
+
+### 2) Boundary enforcement
+
+Import boundaries are enforced by ESLint (`import/no-restricted-paths`).
+Do not bypass them with relative path tricks or deep cross-layer imports.
+
+### 3) Public API and import style
+
+- Use alias imports via `@/*` from `tsconfig.json`.
+- Cross-slice imports should go through each slice public entry (`index.ts`) by default.
+- Keep internal files private to the slice unless there is a clear reuse need.
+
+### 4) Data access boundaries
+
+- Shared HTTP primitives live in `frontend/src/shared/api/*`.
+- Endpoint-specific API calls live in entity/feature `api/*`.
+- `pages/widgets/ui` should not call `fetch`/HTTP client directly.
+
+### 5) UI and state split
+
+- Keep render-focused components in `ui/*`.
+- Keep business/stateful logic in `model/*` or dedicated hooks.
+- Keep pure helpers/formatters in `lib/*`.
+- Page layer should compose flows; avoid embedding feature business logic in route files.
+
+### 6) App-wide concerns
+
+- Global providers and router wiring belong in `frontend/src/app/providers` and `frontend/src/app/routes`.
+- Theme tokens and global style baseline belong in `frontend/src/app/styles/theme.css`.
+
 ## Required Checks for Backend Changes
 
 Run before commit (in `backend/`):
@@ -94,11 +136,22 @@ Local sandbox uses Poetry-managed environment. Run backend checks and tests thro
 
 If `pytest` is unavailable in current environment, state that explicitly in the delivery note.
 
+## Required Checks for Frontend Changes
+
+Run before commit (in `frontend/`):
+
+1. `npm run lint`
+2. `npm run test`
+3. `npm run build`
+
+If `npm` is unavailable in current environment, state that explicitly in the delivery note.
+
 ## Canonical Docs
 
 - Docs map: `docs/README.md`
 - Architecture baseline: `docs/adr/ARCHITECTURE-BASELINE.md`
 - Backend architecture: `backend/ARCHITECTURE.md`
+- Frontend design index: `docs/frontend-design/README.md`
 
 ## Git Commit Message Convention
 
