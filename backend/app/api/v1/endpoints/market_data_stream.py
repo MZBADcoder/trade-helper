@@ -24,7 +24,8 @@ from app.application.watchlist.service import WatchlistApplicationService
 from app.core.config import settings
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+# Use uvicorn logger to ensure WS diagnostics are visible with default uvicorn logging setup.
+logger = logging.getLogger("uvicorn.error")
 
 
 @router.websocket("/stream")
@@ -34,13 +35,15 @@ async def market_data_stream(
     auth_service: AuthApplicationService = Depends(get_auth_service),
     watchlist_service: WatchlistApplicationService = Depends(get_watchlist_service),
 ) -> None:
+    accepted_subprotocol = _resolve_accepted_subprotocol(websocket)
     token, from_cookie, token_source = _extract_ws_token(websocket)
     client_address = _ws_client_address(websocket)
-    await websocket.accept()
-    logger.info(
-        "market stream ws accepted: client=%s token_source=%s",
+    await websocket.accept(subprotocol=accepted_subprotocol)
+    logger.warning(
+        "market stream ws accepted: client=%s token_source=%s accepted_subprotocol=%s",
         client_address,
         token_source,
+        accepted_subprotocol,
     )
     if not token:
         logger.warning(
@@ -76,7 +79,7 @@ async def market_data_stream(
     connection_registered = False
     tasks: list[asyncio.Task[None]] = []
     send_lock = asyncio.Lock()
-    logger.info(
+    logger.warning(
         "market stream ws authenticated: connection_id=%s client=%s user_id=%s token_source=%s",
         connection_id,
         client_address,
@@ -86,7 +89,7 @@ async def market_data_stream(
     try:
         event_queue = await hub.register_connection(connection_id=connection_id, user_id=current_user.id)
         connection_registered = True
-        logger.info(
+        logger.warning(
             "market stream ws registered: connection_id=%s user_id=%s",
             connection_id,
             current_user.id,
@@ -201,7 +204,7 @@ async def market_data_stream(
             asyncio.create_task(heartbeat_loop(), name="heartbeat_loop"),
         ]
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        logger.info(
+        logger.warning(
             "market stream ws task completed: connection_id=%s done=%s pending=%s",
             connection_id,
             [task.get_name() for task in done],
@@ -212,7 +215,7 @@ async def market_data_stream(
             if exc is None:
                 continue
             if isinstance(exc, WebSocketDisconnect):
-                logger.info(
+                logger.warning(
                     "market stream ws client disconnected: connection_id=%s task=%s code=%s",
                     connection_id,
                     task.get_name(),
@@ -228,7 +231,7 @@ async def market_data_stream(
             )
             raise exc
     except WebSocketDisconnect as exc:
-        logger.info(
+        logger.warning(
             "market stream ws disconnected in main loop: connection_id=%s code=%s",
             connection_id,
             exc.code,
@@ -249,7 +252,7 @@ async def market_data_stream(
         await asyncio.gather(*tasks, return_exceptions=True)
         if connection_registered:
             await hub.unregister_connection(connection_id=connection_id)
-        logger.info(
+        logger.warning(
             "market stream ws cleanup complete: connection_id=%s registered=%s",
             connection_id,
             connection_registered,
@@ -280,6 +283,17 @@ def _ws_client_address(websocket: WebSocket) -> str:
     if client is None:
         return "unknown"
     return f"{client.host}:{client.port}"
+
+
+def _resolve_accepted_subprotocol(websocket: WebSocket) -> str | None:
+    subprotocol = websocket.headers.get("sec-websocket-protocol", "")
+    if not subprotocol:
+        return None
+    segments = [segment.strip() for segment in subprotocol.split(",") if segment.strip()]
+    if len(segments) >= 2 and segments[0].lower() in {"bearer", "token"}:
+        # The second segment may carry credential material and must never be echoed back.
+        return segments[0]
+    return None
 
 
 def _is_ws_origin_allowed(websocket: WebSocket) -> bool:
