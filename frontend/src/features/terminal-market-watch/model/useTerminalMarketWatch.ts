@@ -101,6 +101,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const snapshotPollRef = React.useRef<number | null>(null);
   const barsPollRef = React.useRef<number | null>(null);
   const manualCloseRef = React.useRef(false);
+  const closingSocketSetRef = React.useRef<WeakSet<WebSocket>>(new WeakSet());
   const subscriptionSetRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
@@ -773,8 +774,12 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         wsRef.current = null;
       }
       subscriptionSetRef.current = new Set();
+      const closedByCleanup = closingSocketSetRef.current.has(ws);
+      if (closedByCleanup) {
+        closingSocketSetRef.current.delete(ws);
+      }
 
-      if (manualCloseRef.current || !tokenRef.current) {
+      if (closedByCleanup || manualCloseRef.current || !tokenRef.current) {
         setStreamStatus("disconnected");
         return;
       }
@@ -818,7 +823,8 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     const ws = wsRef.current;
     if (ws) {
       wsRef.current = null;
-      ws.close();
+      closingSocketSetRef.current.add(ws);
+      ws.close(1000, "client_cleanup");
     }
 
     subscriptionSetRef.current = new Set();
