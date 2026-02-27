@@ -162,3 +162,34 @@ When the user asks to commit and does not provide a custom format, follow this d
 - The title must include the primary scope: `frontend` or `backend` (for cross-layer changes, use the dominant scope).
 - Recommended format: `<type>(<scope>): <one-sentence summary>`.
 - If the change is large, add details in the description/body using `summary` / `detail`.
+
+## Git Conflict Resolution (Rebase + Squash Before Main Merge)
+
+For this single-developer project, keep `main` updated first, then rebase your feature branch onto latest `main`, squash branch commits into one, and finally merge with fast-forward only.
+This keeps history linear and avoids extra merge commits.
+
+Recommended flow (no merge commit):
+
+1. `git checkout main`
+2. `git pull --ff-only origin main`
+3. `git checkout <feature-branch>`
+4. `git rebase main`
+5. If conflicts happen: resolve markers (`<<<<<<<`, `=======`, `>>>>>>>`), run `git add <file>`, then `git rebase --continue` (repeat until done).
+6. `git reset --soft main`
+7. `git commit -m "<type>(<scope>): <one-sentence summary>"`，if the change is large, add details in the description/body using `summary` / `detail`.
+8. `git checkout main`
+9. `git merge --ff-only <feature-branch>`
+
+If you need to cancel conflict resolution:
+
+1. `git rebase --abort`
+
+If `git merge --ff-only` fails, it means `main` changed after your rebase.
+Pull latest `main` and rebase the feature branch again.
+
+Push rules:
+
+1. Push `main` normally: `git push origin main`.
+2. If a rebased feature branch has already been pushed before, update it with `git push --force-with-lease origin <feature-branch>`.
+
+Unless explicitly requested, do not use `git merge --no-ff` in this repo.
