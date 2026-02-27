@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import logging
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -23,6 +24,7 @@ from app.application.watchlist.service import WatchlistApplicationService
 from app.core.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.websocket("/stream")
@@ -32,12 +34,27 @@ async def market_data_stream(
     auth_service: AuthApplicationService = Depends(get_auth_service),
     watchlist_service: WatchlistApplicationService = Depends(get_watchlist_service),
 ) -> None:
-    token, from_cookie = _extract_ws_token(websocket)
+    token, from_cookie, token_source = _extract_ws_token(websocket)
+    client_address = _ws_client_address(websocket)
     await websocket.accept()
+    logger.info(
+        "market stream ws accepted: client=%s token_source=%s",
+        client_address,
+        token_source,
+    )
     if not token:
+        logger.warning(
+            "market stream ws closing: client=%s code=4401 reason=missing token",
+            client_address,
+        )
         await websocket.close(code=4401, reason="missing token")
         return
     if from_cookie and not _is_ws_origin_allowed(websocket):
+        logger.warning(
+            "market stream ws closing: client=%s code=4403 reason=origin not allowed origin=%s",
+            client_address,
+            websocket.headers.get("origin"),
+        )
         await websocket.close(code=4403, reason="origin not allowed")
         return
 
@@ -47,6 +64,11 @@ async def market_data_stream(
             token=token,
         )
     except ValueError:
+        logger.warning(
+            "market stream ws closing: client=%s code=4401 reason=invalid token token_source=%s",
+            client_address,
+            token_source,
+        )
         await websocket.close(code=4401, reason="invalid token")
         return
 
@@ -54,9 +76,21 @@ async def market_data_stream(
     connection_registered = False
     tasks: list[asyncio.Task[None]] = []
     send_lock = asyncio.Lock()
+    logger.info(
+        "market stream ws authenticated: connection_id=%s client=%s user_id=%s token_source=%s",
+        connection_id,
+        client_address,
+        current_user.id,
+        token_source,
+    )
     try:
         event_queue = await hub.register_connection(connection_id=connection_id, user_id=current_user.id)
         connection_registered = True
+        logger.info(
+            "market stream ws registered: connection_id=%s user_id=%s",
+            connection_id,
+            current_user.id,
+        )
         session = MarketStreamSession(
             max_symbols=settings.market_stream_max_symbols_per_connection,
             ping_interval_seconds=settings.market_stream_ping_interval_seconds,
@@ -144,6 +178,10 @@ async def market_data_stream(
             while True:
                 decision = session.heartbeat_decision(now=time.monotonic())
                 if decision.should_close:
+                    logger.warning(
+                        "market stream ws closing: connection_id=%s code=4408 reason=ping timeout",
+                        connection_id,
+                    )
                     await websocket.close(code=4408, reason="ping timeout")
                     return
 
@@ -158,18 +196,51 @@ async def market_data_stream(
                 await asyncio.sleep(decision.sleep_seconds)
 
         tasks = [
-            asyncio.create_task(receive_loop()),
-            asyncio.create_task(send_loop()),
-            asyncio.create_task(heartbeat_loop()),
+            asyncio.create_task(receive_loop(), name="receive_loop"),
+            asyncio.create_task(send_loop(), name="send_loop"),
+            asyncio.create_task(heartbeat_loop(), name="heartbeat_loop"),
         ]
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        logger.info(
+            "market stream ws task completed: connection_id=%s done=%s pending=%s",
+            connection_id,
+            [task.get_name() for task in done],
+            [task.get_name() for task in pending],
+        )
         for task in done:
             exc = task.exception()
-            if exc is None or isinstance(exc, WebSocketDisconnect):
+            if exc is None:
                 continue
+            if isinstance(exc, WebSocketDisconnect):
+                logger.info(
+                    "market stream ws client disconnected: connection_id=%s task=%s code=%s",
+                    connection_id,
+                    task.get_name(),
+                    exc.code,
+                )
+                continue
+            logger.error(
+                "market stream ws task failed: connection_id=%s task=%s error=%s",
+                connection_id,
+                task.get_name(),
+                exc,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
             raise exc
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as exc:
+        logger.info(
+            "market stream ws disconnected in main loop: connection_id=%s code=%s",
+            connection_id,
+            exc.code,
+        )
         return
+    except Exception:
+        logger.exception(
+            "market stream ws failed: connection_id=%s user_id=%s",
+            connection_id,
+            current_user.id,
+        )
+        raise
     finally:
         for task in tasks:
             if task.done():
@@ -178,25 +249,37 @@ async def market_data_stream(
         await asyncio.gather(*tasks, return_exceptions=True)
         if connection_registered:
             await hub.unregister_connection(connection_id=connection_id)
+        logger.info(
+            "market stream ws cleanup complete: connection_id=%s registered=%s",
+            connection_id,
+            connection_registered,
+        )
 
 
-def _extract_ws_token(websocket: WebSocket) -> tuple[str | None, bool]:
+def _extract_ws_token(websocket: WebSocket) -> tuple[str | None, bool, str]:
     cookie_token = websocket.cookies.get("token") or websocket.cookies.get("access_token")
     if cookie_token:
-        return cookie_token.strip(), True
+        return cookie_token.strip(), True, "cookie"
 
     authorization = websocket.headers.get("authorization")
     if authorization and authorization.lower().startswith("bearer "):
-        return authorization.split(" ", maxsplit=1)[1].strip(), False
+        return authorization.split(" ", maxsplit=1)[1].strip(), False, "authorization"
 
     subprotocol = websocket.headers.get("sec-websocket-protocol", "")
     if subprotocol:
         segments = [segment.strip() for segment in subprotocol.split(",") if segment.strip()]
         if len(segments) >= 2 and segments[0].lower() in {"bearer", "token"}:
-            return segments[1], False
+            return segments[1], False, "subprotocol_pair"
         if len(segments) == 1:
-            return segments[0], False
-    return None, False
+            return segments[0], False, "subprotocol_single"
+    return None, False, "none"
+
+
+def _ws_client_address(websocket: WebSocket) -> str:
+    client = websocket.client
+    if client is None:
+        return "unknown"
+    return f"{client.host}:{client.port}"
 
 
 def _is_ws_origin_allowed(websocket: WebSocket) -> bool:
