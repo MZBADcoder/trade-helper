@@ -41,6 +41,9 @@
 - `BE-0005` 对 PRD-0001 `market-data/bars` 混合拉取策略设计（day/minute 分表、minute 按交易日分区、5/15/60 预聚合 + 未完结实时补算）
   - `docs/backend-evolution/BE-0005-prd-0001-market-data-hybrid-fetch-strategy.md`
   - 备注：`bars` 查询/聚合不使用 Redis 缓存；WS 实时广播使用 Redis Pub/Sub
+- `BE-0007` 对 PRD-0001 `/demo` 路由的后端 mock 回放入口拆分
+  - `docs/backend-evolution/BE-0007-prd-0001-demo-mock-replay-entry.md`
+  - 备注：固定 `AMD` + 最近已完成交易日 `10:00-10:30 ET` 回放窗口；免登录，不接 Massive
 
 ## 模板
 

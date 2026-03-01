@@ -28,3 +28,4 @@
 - [x] FE-MW-V2（P2）：分钟级 K 线交易日判定已改为后端交易日接口（历史基于 XNYS 日历，今天/未来叠加 Massive holidays 覆盖），不再由前端用 weekday 近似。
 - [ ] BE-TRADING-CALENDAR 收尾：补充 `market_status` 的“临时停市/异常交易日”覆盖策略与监控告警，避免仅依赖 upcoming holidays。
 - [ ] MARKET-SNAPSHOTS 优化：将交易日盘中 watchlist 的 `change/change_pct` 改为“WS 最新价 + DB `prev_close` 实时重算”全链路口径（当前已完成非交易日 DB 基准回退）。
+- [ ] DEMO-REPLAY 后续项：评估将 `/demo` 的 mock 回放窗口从“纯后端生成”升级为“真实历史数据抽样 + mock 增量拼接”，以便逐步接近生产链路。

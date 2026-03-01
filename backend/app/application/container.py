@@ -4,8 +4,9 @@ from functools import lru_cache
 import os
 import socket
 
-from app.application.auth.service import AuthApplicationService
 from app.application.auth.login_throttle import AuthLoginThrottle
+from app.application.auth.service import AuthApplicationService
+from app.application.demo_market.service import DemoMarketDataApplicationService
 from app.application.market_data.realtime_publisher import StockMarketRealtimePublisher
 from app.application.market_data.service import MarketDataApplicationService
 from app.application.market_data.stream_hub import StockMarketStreamHub
@@ -51,6 +52,17 @@ def build_market_data_service() -> MarketDataApplicationService:
         massive_client=_massive_client(),
         trading_calendar=_trading_calendar(),
     )
+
+
+@lru_cache
+def _demo_market_data_service() -> DemoMarketDataApplicationService:
+    return DemoMarketDataApplicationService(
+        trading_calendar=_trading_calendar(),
+    )
+
+
+def build_demo_market_data_service() -> DemoMarketDataApplicationService:
+    return _demo_market_data_service()
 
 
 def build_watchlist_service() -> WatchlistApplicationService:

@@ -1,12 +1,15 @@
 import React from "react";
 
 import { StockChartPanel } from "@/entities/market";
-import { type WatchlistItem } from "@/entities/watchlist";
 import {
-  MAX_OPENED_TABS,
-  TIMEFRAME_OPTIONS,
-  timeframeLabel,
-  useDemoTerminal,
+  DEMO_REPLAY_WINDOW_LABEL,
+  DemoMetricCard,
+  formatReplayTime,
+  toPrice,
+  toSigned,
+  toSignedPercent,
+  toVolume,
+  useDemoTerminal
 } from "@/features/demo-terminal";
 import { TerminalEmptyGraphic } from "@/shared/ui";
 
@@ -15,25 +18,16 @@ export function DemoTerminalPage() {
     watchlist,
     watchlistBusy,
     watchlistError,
-    tickerInput,
-    openTickers,
+    bars,
+    indicators,
+    snapshot,
+    streamStatus,
+    streamMessage,
+    loading,
+    error,
+    dataSource,
     activeTicker,
-    tabMessage,
-    timeframe,
-    activeDetail,
-    displayRenderable,
-    latestBar,
-    hasDisplayData,
-    showRefreshBadge,
-    setTickerInput,
-    setTimeframe,
-    refreshWatchlist,
-    reloadActiveTicker,
-    openTicker,
-    selectTicker,
-    closeTicker,
-    onAddTicker,
-    onDeleteTicker,
+    reload
   } = useDemoTerminal();
 
   return (
@@ -41,13 +35,14 @@ export function DemoTerminalPage() {
       <section className="terminalHead panel">
         <div className="panelHeader">
           <div className="panelTitle">DEMO TERMINAL</div>
-          <div className="panelMeta">Independent demo route (local data)</div>
+          <div className="panelMeta">Backend mock replay (no Massive dependency)</div>
         </div>
         <div className="panelBody row terminalHeadBody">
-          <span className="pill">Session: Demo</span>
-          <span className="pill">Data: Local synthetic market bars</span>
-          <span className="pill">Opened tabs: {openTickers.length}/{MAX_OPENED_TABS}</span>
-          <span className="pill">TF: {timeframeLabel(timeframe)}</span>
+          <span className="pill">Session: Demo (No Login)</span>
+          <span className="pill">Ticker: AMD</span>
+          <span className="pill">Window: {DEMO_REPLAY_WINDOW_LABEL}</span>
+          <span className="pill">Stream: {streamStatus}</span>
+          <span className="pill">Bars Source: {dataSource ?? "-"}</span>
         </div>
       </section>
 
@@ -55,54 +50,44 @@ export function DemoTerminalPage() {
         <aside className="panel watchlistPanel">
           <div className="panelHeader">
             <div className="panelTitle">DEMO WATCHLIST</div>
-            <div className="panelMeta">{watchlistBusy ? "Syncing..." : "Local"}</div>
+            <div className="panelMeta">{watchlistBusy ? "Syncing..." : "Fixed"}</div>
           </div>
           <div className="panelBody">
             <div className="row">
-              <input
-                className="input"
-                placeholder="Ticker (AAPL, NVDA...)"
-                value={tickerInput}
-                onChange={(event) => setTickerInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    onAddTicker();
-                  }
-                }}
-              />
-              <button className="btn" type="button" onClick={onAddTicker}>
-                Add
-              </button>
-              <button className="btn btnSecondary" type="button" onClick={() => void refreshWatchlist()}>
-                Refresh
+              <button className="btn btnSecondary" type="button" onClick={() => void reload()}>
+                Reload Snapshot
               </button>
             </div>
 
             {watchlistError ? <div className="errorText">{watchlistError}</div> : null}
-            {tabMessage ? <div className="muted">{tabMessage}</div> : null}
+            {error ? <div className="errorText">{error}</div> : null}
 
             <table className="table watchlistTable">
               <thead>
                 <tr>
                   <th>Ticker</th>
-                  <th>Action</th>
+                  <th>Last</th>
+                  <th>Change</th>
+                  <th>%</th>
+                  <th>Updated</th>
                 </tr>
               </thead>
               <tbody>
                 {watchlist.length === 0 ? (
                   <tr>
-                    <td colSpan={2} className="muted">
-                      No symbols yet.
+                    <td colSpan={5} className="muted">
+                      No symbols available.
                     </td>
                   </tr>
                 ) : (
                   watchlist.map((item) => (
-                    <WatchlistRow
-                      key={item.ticker}
-                      item={item}
-                      onOpen={openTicker}
-                      onDelete={onDeleteTicker}
-                    />
+                    <tr key={item.ticker}>
+                      <td>{item.ticker}</td>
+                      <td>{toPrice(snapshot?.last)}</td>
+                      <td>{toSigned(snapshot?.change)}</td>
+                      <td>{toSignedPercent(snapshot?.change_pct)}</td>
+                      <td>{formatReplayTime(snapshot?.updated_at ?? null)}</td>
+                    </tr>
                   ))
                 )}
               </tbody>
@@ -112,151 +97,39 @@ export function DemoTerminalPage() {
 
         <section className="panel detailPanel">
           <div className="panelHeader">
-            <div className="panelTitle">DETAIL VIEW</div>
-            {activeTicker ? (
-              <div className="panelMeta row">
-                <span>{activeTicker}</span>
-                <button className="btn btnSecondary" type="button" onClick={reloadActiveTicker}>
-                  Reload
-                </button>
-              </div>
-            ) : (
-              <div className="panelMeta">Select a ticker</div>
-            )}
-          </div>
-
-          <div className="panelBody detailBody">
-            <div className="timeframeRow">
-              {TIMEFRAME_OPTIONS.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={`timeframeBtn ${timeframe === item.key ? "timeframeBtnActive" : ""}`}
-                  onClick={() => setTimeframe(item.key)}
-                >
-                  {item.label}
-                </button>
-              ))}
+            <div className="panelTitle">REPLAY DETAIL</div>
+            <div className="panelMeta row">
+              <span>{activeTicker}</span>
+              <span>{streamMessage ?? "Looping 30-minute market replay window"}</span>
             </div>
+          </div>
+          <div className="panelBody detailBody">
+            {loading ? <div className="muted">Loading backend replay data...</div> : null}
 
-            {openTickers.length ? (
-              <div className="tabRow">
-                {openTickers.map((ticker) => (
-                  <button
-                    key={ticker}
-                    type="button"
-                    className={`tabChip ${ticker === activeTicker ? "tabChipActive" : ""}`}
-                    onClick={() => selectTicker(ticker)}
-                  >
-                    {ticker}
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      className="tabClose"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeTicker(ticker);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.stopPropagation();
-                          closeTicker(ticker);
-                        }
-                      }}
-                    >
-                      x
-                    </span>
-                  </button>
-                ))}
+            {snapshot ? (
+              <div className="metricRow">
+                <DemoMetricCard label="Last" value={toPrice(snapshot.last)} />
+                <DemoMetricCard label="Change" value={toSigned(snapshot.change)} />
+                <DemoMetricCard label="%Change" value={toSignedPercent(snapshot.change_pct)} />
+                <DemoMetricCard label="High" value={toPrice(snapshot.high)} />
+                <DemoMetricCard label="Low" value={toPrice(snapshot.low)} />
+                <DemoMetricCard label="Volume" value={toVolume(snapshot.volume)} />
+                <DemoMetricCard label="Updated" value={formatReplayTime(snapshot.updated_at)} />
+                <DemoMetricCard label="Status" value={snapshot.market_status} />
               </div>
+            ) : null}
+
+            {bars.length && indicators ? (
+              <StockChartPanel ticker={activeTicker} timeframe="1m" bars={bars} indicators={indicators} />
             ) : (
               <div className="emptyState">
                 <TerminalEmptyGraphic />
-                <p className="muted">Open a symbol from demo watchlist to inspect details.</p>
+                <p className="muted">Waiting for replay bars...</p>
               </div>
             )}
-
-            {activeTicker && activeDetail?.loading && !hasDisplayData ? (
-              <div className="muted">Loading demo bars and indicators...</div>
-            ) : null}
-            {activeTicker && activeDetail?.error ? <div className="errorText">{activeDetail.error}</div> : null}
-
-            {displayRenderable ? (
-              <div className="detailRenderStack">
-                {showRefreshBadge ? (
-                  <div className="detailLoadingBadge">
-                    {activeTicker !== displayRenderable.ticker
-                      ? `Loading ${activeTicker}, showing ${displayRenderable.ticker}`
-                      : `Refreshing ${activeTicker}`}
-                  </div>
-                ) : null}
-                <div className="metricRow">
-                  <MetricCard label="TF" value={timeframeLabel(timeframe)} />
-                  <MetricCard label="Last" value={toPrice(latestBar?.close)} />
-                  <MetricCard label="High" value={toPrice(latestBar?.high)} />
-                  <MetricCard label="Low" value={toPrice(latestBar?.low)} />
-                  <MetricCard label="Volume" value={toVolume(latestBar?.volume)} />
-                  <MetricCard label="Updated" value={formatTime(displayRenderable.updatedAt)} />
-                </div>
-                <StockChartPanel
-                  ticker={displayRenderable.ticker}
-                  bars={displayRenderable.bars}
-                  indicators={displayRenderable.indicators}
-                />
-              </div>
-            ) : null}
           </div>
         </section>
       </div>
     </main>
   );
-}
-
-type WatchlistRowProps = {
-  item: WatchlistItem;
-  onOpen: (ticker: string) => void;
-  onDelete: (ticker: string) => void;
-};
-
-function WatchlistRow({ item, onOpen, onDelete }: WatchlistRowProps) {
-  return (
-    <tr>
-      <td>
-        <button className="watchTicker" type="button" onClick={() => onOpen(item.ticker)}>
-          {item.ticker}
-        </button>
-      </td>
-      <td>
-        <button className="btn btnSecondary" type="button" onClick={() => onDelete(item.ticker)}>
-          Remove
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <article className="metricCard">
-      <div className="metricLabel">{label}</div>
-      <div className="metricValue">{value}</div>
-    </article>
-  );
-}
-
-function toPrice(value: number | undefined): string {
-  if (value === undefined || Number.isNaN(value)) return "-";
-  return `$${value.toFixed(2)}`;
-}
-
-function toVolume(value: number | undefined): string {
-  if (value === undefined || Number.isNaN(value)) return "-";
-  if (value >= 1000000) return `${(value / 1000000).toFixed(2)}M`;
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
-  return value.toFixed(0);
-}
-
-function formatTime(value: string | null): string {
-  if (!value) return "-";
-  return new Date(value).toLocaleTimeString();
 }

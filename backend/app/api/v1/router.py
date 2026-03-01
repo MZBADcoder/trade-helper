@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints.auth import router as auth_router
+from app.api.v1.endpoints.demo_market_data import router as demo_market_data_router
+from app.api.v1.endpoints.demo_market_data_stream import router as demo_market_data_stream_router
 from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.endpoints.market_data import router as market_data_rest_router
 from app.api.v1.endpoints.market_data_stream import router as market_data_stream_router
@@ -14,3 +16,5 @@ api_router.include_router(watchlist_router, prefix="/watchlist", tags=["watchlis
 api_router.include_router(market_data_rest_router, prefix="/market-data", tags=["market-data"])
 api_router.include_router(market_data_stream_router, prefix="/market-data", tags=["market-data"])
 api_router.include_router(options_router, prefix="/options", tags=["options"])
+api_router.include_router(demo_market_data_router, prefix="/demo", tags=["demo"])
+api_router.include_router(demo_market_data_stream_router, prefix="/demo", tags=["demo"])

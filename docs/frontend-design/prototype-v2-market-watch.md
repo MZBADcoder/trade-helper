@@ -44,7 +44,6 @@
 
 - 不做策略、告警、扫描器 UI。
 - 不做真实交易下单 UI。
-- 不做 demo 路由改造（`/demo` 仍保持本地模拟用途）。
 - options 相关交互深化与联调（expirations/chain/contract detail）在当前迭代 HOLD。
 
 ---
@@ -55,8 +54,22 @@
 
 - `/`：保持不变
 - `/login`：保持不变
-- `/demo`：保持不变
+- `/demo`：独立 mock 回放终端（免登录、固定 `AMD`、后端 REST + WS）
 - `/terminal`：新增 market-watch 子布局（本次核心）
+
+### 3.1.1 `/demo` 独立回放入口
+
+- 目标：提供一个不依赖开盘时间的稳定测试路由。
+- 数据来源：
+  - 不再由前端本地拼装；
+  - 改为调用后端 `/api/v1/demo/*`。
+- 交互约束：
+  - watchlist 固定只读 `AMD`
+  - 首屏直接加载固定 `10:00-10:30 ET` 的 `1m` bars
+  - 建立 demo WS 后循环回放同一 30 分钟窗口
+- UI 约束：
+  - page 层只负责组装；
+  - 格式化与指标展示逻辑下沉到 `features/demo-terminal/*`
 
 ### 3.2 `/terminal` 页面分区
 

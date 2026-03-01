@@ -1,8 +1,8 @@
 export {
-  MAX_OPENED_TABS,
-  TIMEFRAME_OPTIONS,
-  timeframeLabel,
+  DEMO_REPLAY_WINDOW_LABEL,
+  DEMO_TICKER,
   useDemoTerminal,
   type DemoTerminalModel,
 } from "./model/useDemoTerminal";
-export { type DemoTimeframe } from "./lib/demoData";
+export { DemoMetricCard } from "./ui/DemoMetricCard";
+export { formatReplayTime, toPrice, toSigned, toSignedPercent, toVolume } from "./lib/presentation";

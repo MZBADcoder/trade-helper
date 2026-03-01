@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.api.errors import raise_api_error
 from app.application import container
 from app.application.auth.service import AuthApplicationService
+from app.application.demo_market.service import DemoMarketDataApplicationService
 from app.application.market_data.service import MarketDataApplicationService
 from app.application.market_data.stream_hub import StockMarketStreamHub
 from app.application.options.service import OptionsApplicationService
@@ -17,6 +18,10 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 def get_market_data_service() -> MarketDataApplicationService:
     return container.build_market_data_service()
+
+
+def get_demo_market_data_service() -> DemoMarketDataApplicationService:
+    return container.build_demo_market_data_service()
 
 
 def get_watchlist_service() -> WatchlistApplicationService:
