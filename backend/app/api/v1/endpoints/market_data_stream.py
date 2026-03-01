@@ -302,7 +302,8 @@ def _is_ws_origin_allowed(websocket: WebSocket) -> bool:
     if normalized_origin is None:
         return False
     if "*" in settings.cors_allow_origins:
-        return True
+        # Cookie-authenticated websocket sessions must require explicit origin allowlists.
+        return False
 
     allowed_origins = {
         normalized

@@ -4,9 +4,15 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.core.security import verify_password
 from app.application.auth.login_throttle import AuthLoginThrottle
 from app.application.auth.service import AuthApplicationService
-from app.domain.auth.constants import ERROR_AUTH_RATE_LIMITED, ERROR_EMAIL_ALREADY_REGISTERED
+from app.domain.auth.constants import (
+    ERROR_AUTH_RATE_LIMITED,
+    ERROR_EMAIL_ALREADY_REGISTERED,
+    ERROR_INVALID_EMAIL_OR_PASSWORD,
+    ERROR_INVALID_USER_ID,
+)
 from app.domain.auth.schemas import User, UserCredentials
 
 
@@ -15,11 +21,17 @@ class FakeAuthRepository:
         self._users: dict[int, UserCredentials] = {}
         self._email_index: dict[str, int] = {}
         self._next_id = 1
+        self.created_payload: dict[str, str] | None = None
 
     def create_user(self, *, email: str, email_normalized: str, password_hash: str) -> User:
         if email_normalized in self._email_index:
             raise ValueError(ERROR_EMAIL_ALREADY_REGISTERED)
 
+        self.created_payload = {
+            "email": email,
+            "email_normalized": email_normalized,
+            "password_hash": password_hash,
+        }
         user_id = self._next_id
         self._next_id += 1
         now = datetime.now(tz=timezone.utc)
@@ -91,6 +103,19 @@ class FakeUoW:
         self.rollbacks += 1
 
 
+def test_register_normalizes_email_and_hashes_password() -> None:
+    repo = FakeAuthRepository()
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
+
+    created = service.register(email=" Trader@Example.com ", password="StrongPass123")
+
+    assert created.email == "Trader@Example.com"
+    assert repo.created_payload is not None
+    assert repo.created_payload["email_normalized"] == "trader@example.com"
+    assert repo.created_payload["password_hash"] != "StrongPass123"
+    assert verify_password("StrongPass123", repo.created_payload["password_hash"])
+
+
 def test_register_and_login_issue_valid_access_token() -> None:
     repo = FakeAuthRepository()
     service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
@@ -110,8 +135,20 @@ def test_login_rejects_wrong_password() -> None:
     service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
     service.register(email="trader@example.com", password="strong-pass-123")
 
-    with pytest.raises(ValueError, match="Invalid email or password"):
+    with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
         service.login(email="trader@example.com", password="wrong-password")
+
+
+def test_login_returns_generic_error_for_inactive_user() -> None:
+    repo = FakeAuthRepository()
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
+    created = service.register(email="trader@example.com", password="strong-pass-123")
+    credentials = repo.get_user_by_email_normalized(email_normalized="trader@example.com")
+    assert credentials is not None
+    credentials.is_active = False
+
+    with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
+        service.login(email=created.email, password="strong-pass-123")
 
 
 def test_login_throttle_blocks_after_repeated_failures() -> None:
@@ -123,7 +160,69 @@ def test_login_throttle_blocks_after_repeated_failures() -> None:
     )
     service.register(email="trader@example.com", password="strong-pass-123")
 
-    with pytest.raises(ValueError, match="Invalid email or password"):
+    with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
         service.login(email="trader@example.com", password="wrong-password")
     with pytest.raises(ValueError, match=ERROR_AUTH_RATE_LIMITED):
         service.login(email="trader@example.com", password="wrong-password")
+
+
+def test_login_throttle_blocks_repeated_failures_from_same_source() -> None:
+    repo = FakeAuthRepository()
+    throttle = AuthLoginThrottle(max_failures=2, window_seconds=60, block_seconds=300)
+    service = AuthApplicationService(
+        uow=FakeUoW(auth_repo=repo),
+        login_throttle=throttle,
+    )
+    service.register(email="trader@example.com", password="strong-pass-123")
+
+    with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
+        service.login_with_source(
+            email="trader@example.com",
+            password="wrong-password",
+            source="203.0.113.10",
+        )
+
+    with pytest.raises(ValueError, match=ERROR_AUTH_RATE_LIMITED):
+        service.login_with_source(
+            email="rotating@example.com",
+            password="wrong-password",
+            source="203.0.113.10",
+        )
+
+
+def test_successful_login_clears_source_throttle_bucket() -> None:
+    repo = FakeAuthRepository()
+    throttle = AuthLoginThrottle(max_failures=2, window_seconds=60, block_seconds=300)
+    service = AuthApplicationService(
+        uow=FakeUoW(auth_repo=repo),
+        login_throttle=throttle,
+    )
+    service.register(email="trader@example.com", password="strong-pass-123")
+
+    with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
+        service.login_with_source(
+            email="trader@example.com",
+            password="wrong-password",
+            source="203.0.113.10",
+        )
+
+    service.login_with_source(
+        email="trader@example.com",
+        password="strong-pass-123",
+        source="203.0.113.10",
+    )
+
+    with pytest.raises(ValueError, match=ERROR_INVALID_EMAIL_OR_PASSWORD):
+        service.login_with_source(
+            email="missing@example.com",
+            password="wrong-password",
+            source="203.0.113.10",
+        )
+
+
+def test_get_user_rejects_invalid_user_id() -> None:
+    repo = FakeAuthRepository()
+    service = AuthApplicationService(uow=FakeUoW(auth_repo=repo))
+
+    with pytest.raises(ValueError, match=ERROR_INVALID_USER_ID):
+        service.get_user(user_id=0)

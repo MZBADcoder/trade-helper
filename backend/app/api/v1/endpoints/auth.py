@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import get_auth_service, get_current_user
 from app.api.v1.dto.auth import AccessTokenOut, LoginRequest, RegisterAcceptedOut, RegisterRequest, UserOut
@@ -30,11 +30,16 @@ def register(
 
 @router.post("/login", response_model=AccessTokenOut)
 def login(
+    request: Request,
     payload: LoginRequest,
     service: AuthApplicationService = Depends(get_auth_service),
 ) -> AccessTokenOut:
     try:
-        token = service.login(email=payload.email, password=payload.password)
+        token = service.login_with_source(
+            email=payload.email,
+            password=payload.password,
+            source=request.client.host if request.client is not None else None,
+        )
         return to_access_token_out(token)
     except ValueError as exc:
         detail = str(exc)

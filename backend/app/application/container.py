@@ -4,7 +4,6 @@ from functools import lru_cache
 import os
 import socket
 
-from app.application.auth.login_throttle import AuthLoginThrottle
 from app.application.auth.service import AuthApplicationService
 from app.application.demo_market.service import DemoMarketDataApplicationService
 from app.application.market_data.realtime_publisher import StockMarketRealtimePublisher
@@ -19,6 +18,7 @@ from app.application.market_data.trading_calendar import TradingCalendar
 from app.application.options.service import OptionsApplicationService
 from app.application.watchlist.service import WatchlistApplicationService
 from app.core.config import settings
+from app.infrastructure.auth.login_throttle import RedisAuthLoginThrottle
 from app.infrastructure.clients.massive import MassiveClient
 from app.infrastructure.clients.massive_stream import MassiveStocksWebSocketClient
 from app.infrastructure.db.session import SessionLocal
@@ -80,8 +80,8 @@ def build_options_service() -> OptionsApplicationService:
 
 
 @lru_cache
-def _auth_login_throttle() -> AuthLoginThrottle:
-    return AuthLoginThrottle()
+def _auth_login_throttle() -> RedisAuthLoginThrottle:
+    return RedisAuthLoginThrottle(redis_url=settings.redis_url)
 
 
 def build_auth_service() -> AuthApplicationService:

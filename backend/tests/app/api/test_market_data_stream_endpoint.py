@@ -143,6 +143,25 @@ def test_stream_rejects_cookie_token_without_origin() -> None:
         assert exc_info.value.code == 4403
 
 
+def test_stream_rejects_cookie_token_when_cors_uses_wildcard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "cors_allow_origins", ["*"])
+
+    client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
+    with client:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(
+                "/api/v1/market-data/stream",
+                headers={
+                    "cookie": "token=valid-token",
+                    "origin": "https://example.com",
+                },
+            ) as websocket:
+                websocket.receive_json()
+        assert exc_info.value.code == 4403
+
+
 def test_stream_accepts_cookie_token_with_allowed_origin() -> None:
     client, _ = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:

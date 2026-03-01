@@ -49,21 +49,31 @@ class AuthApplicationService:
             return user
 
     def login(self, *, email: str, password: str) -> AccessToken:
+        return self.login_with_source(email=email, password=password, source=None)
+
+    def login_with_source(self, *, email: str, password: str, source: str | None) -> AccessToken:
         normalized_email = normalize_email(email)
-        self._login_throttle.assert_allowed(key=normalized_email)
+        source_key = _source_throttle_key(source)
+        account_key = _account_throttle_key(normalized_email)
+        self._login_throttle.assert_allowed(key=account_key)
+        self._login_throttle.assert_allowed(key=source_key)
         try:
             user = self._authenticate(email=email, password=password)
         except ValueError as exc:
             detail = str(exc)
-            if detail == ERROR_INVALID_EMAIL_OR_PASSWORD:
-                self._login_throttle.record_failure(key=normalized_email)
+            if detail in {ERROR_INVALID_EMAIL_OR_PASSWORD, ERROR_USER_INACTIVE}:
+                self._login_throttle.record_failure(key=account_key)
+                self._login_throttle.record_failure(key=source_key)
                 try:
-                    self._login_throttle.assert_allowed(key=normalized_email)
+                    self._login_throttle.assert_allowed(key=account_key)
+                    self._login_throttle.assert_allowed(key=source_key)
                 except ValueError:
                     raise ValueError(ERROR_AUTH_RATE_LIMITED) from exc
+                raise ValueError(ERROR_INVALID_EMAIL_OR_PASSWORD) from exc
             raise
 
-        self._login_throttle.record_success(key=normalized_email)
+        self._login_throttle.record_success(key=account_key)
+        self._login_throttle.record_success(key=source_key)
         expires_in = settings.auth_access_token_expire_days * 24 * 60 * 60
         token = create_access_token(
             subject=str(user.id),
@@ -124,3 +134,14 @@ def _credentials_to_user(user: UserCredentials) -> User:
         updated_at=user.updated_at,
         last_login_at=user.last_login_at,
     )
+
+
+def _account_throttle_key(email: str) -> str:
+    return f"acct:{email}"
+
+
+def _source_throttle_key(source: str | None) -> str:
+    normalized = (source or "unknown").strip().lower()
+    if not normalized:
+        normalized = "unknown"
+    return f"src:{normalized}"

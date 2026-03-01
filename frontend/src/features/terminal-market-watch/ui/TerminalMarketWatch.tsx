@@ -15,7 +15,8 @@ import {
   toSignedPercent,
   toVolume
 } from "../lib/presentation";
-import { TIMEFRAME_OPTIONS, useTerminalMarketWatch } from "../model/useTerminalMarketWatch";
+import { TIMEFRAME_OPTIONS } from "../model/marketWatchUtils";
+import { useTerminalMarketWatch } from "../model/useTerminalMarketWatch";
 
 export function TerminalMarketWatch() {
   const {

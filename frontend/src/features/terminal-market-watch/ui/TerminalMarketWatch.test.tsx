@@ -9,6 +9,10 @@ const { useTerminalMarketWatchMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../model/useTerminalMarketWatch", () => ({
+  useTerminalMarketWatch: useTerminalMarketWatchMock
+}));
+
+vi.mock("../model/marketWatchUtils", () => ({
   TIMEFRAME_OPTIONS: [
     { key: "1m", label: "1m" },
     { key: "5m", label: "5m" },
@@ -17,8 +21,7 @@ vi.mock("../model/useTerminalMarketWatch", () => ({
     { key: "day", label: "Day" },
     { key: "week", label: "Week" },
     { key: "month", label: "Month" }
-  ],
-  useTerminalMarketWatch: useTerminalMarketWatchMock
+  ]
 }));
 
 import { TerminalMarketWatch } from "./TerminalMarketWatch";

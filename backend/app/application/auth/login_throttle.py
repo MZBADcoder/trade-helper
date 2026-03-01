@@ -54,7 +54,7 @@ class AuthLoginThrottle:
             self._purge_expired(now=now)
             state = self._states.get(normalized)
             if state is None and len(self._states) >= self._max_entries:
-                return
+                self._evict_oldest_entry()
             if state is None or now - state.window_started_at > self._window_seconds:
                 self._states[normalized] = _ThrottleState(
                     failures=1,
@@ -88,3 +88,16 @@ class AuthLoginThrottle:
         ]
         for key in expired_keys:
             self._states.pop(key, None)
+
+    def _evict_oldest_entry(self) -> None:
+        if not self._states:
+            return
+
+        oldest_key = min(
+            self._states,
+            key=lambda item_key: (
+                self._states[item_key].window_started_at,
+                self._states[item_key].blocked_until,
+            ),
+        )
+        self._states.pop(oldest_key, None)

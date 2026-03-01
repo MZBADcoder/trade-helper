@@ -9,7 +9,7 @@ import {
   shouldStopDegradedPollingOnStatus,
   streamChannelsForRealtime,
   TIMEFRAME_OPTIONS
-} from "./useTerminalMarketWatch";
+} from "./marketWatchUtils";
 
 describe("marketQueryForTimeframe", () => {
   it("maps intraday timeframes to 10-trading-day policy", () => {
