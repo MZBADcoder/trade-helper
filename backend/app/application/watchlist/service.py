@@ -21,35 +21,35 @@ class WatchlistApplicationService:
         self._uow = uow
         self._market_data_service = market_data_service
 
-    def list_items(self, *, user_id: int) -> list[WatchlistItem]:
+    async def list_items(self, *, user_id: int) -> list[WatchlistItem]:
         _validate_user_id(user_id=user_id)
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_watchlist_repo(uow)
-            return repo.list_items(user_id=user_id)
+            return await repo.list_items(user_id=user_id)
 
-    def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
+    async def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
         _validate_user_id(user_id=user_id)
         normalized = _normalize_ticker(ticker)
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_watchlist_repo(uow)
-            item = repo.add_item(user_id=user_id, ticker=normalized)
-            uow.commit()
+            item = await repo.add_item(user_id=user_id, ticker=normalized)
+            await uow.commit()
 
         if self._market_data_service is not None:
             try:
-                self._market_data_service.prefetch_default(ticker=item.ticker)
+                await self._market_data_service.prefetch_default(ticker=item.ticker)
             except Exception:
                 logger.exception("Market data prefetch failed", extra={"ticker": item.ticker})
 
         return item
 
-    def remove_item(self, *, user_id: int, ticker: str) -> None:
+    async def remove_item(self, *, user_id: int, ticker: str) -> None:
         _validate_user_id(user_id=user_id)
         normalized = _normalize_ticker(ticker)
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_watchlist_repo(uow)
-            repo.remove_item(user_id=user_id, ticker=normalized)
-            uow.commit()
+            await repo.remove_item(user_id=user_id, ticker=normalized)
+            await uow.commit()
         return None
 
 

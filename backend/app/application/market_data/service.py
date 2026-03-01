@@ -71,7 +71,7 @@ class MarketDataApplicationService:
         self._massive_client = massive_client
         self._trading_calendar = trading_calendar or TradingCalendar(massive_client=massive_client)
 
-    def list_bars(
+    async def list_bars(
         self,
         *,
         ticker: str,
@@ -82,7 +82,7 @@ class MarketDataApplicationService:
         limit: int | None = None,
         enforce_range_limit: bool = False,
     ) -> list[MarketBar]:
-        result = self.list_bars_with_meta(
+        result = await self.list_bars_with_meta(
             ticker=ticker,
             timespan=timespan,
             multiplier=multiplier,
@@ -93,7 +93,7 @@ class MarketDataApplicationService:
         )
         return result.bars
 
-    def list_bars_with_meta(
+    async def list_bars_with_meta(
         self,
         *,
         ticker: str,
@@ -104,6 +104,7 @@ class MarketDataApplicationService:
         limit: int | None = None,
         enforce_range_limit: bool = False,
     ) -> MarketBarsQueryResult:
+        await self._trading_calendar.ensure_holiday_cache()
         query = _build_bars_query(
             ticker=ticker,
             timespan=timespan,
@@ -116,18 +117,19 @@ class MarketDataApplicationService:
         )
 
         if query.timespan == "day" and query.multiplier == 1:
-            return self._list_day_baseline(query=query)
+            return await self._list_day_baseline(query=query)
         if query.timespan == "minute" and query.multiplier == 1:
-            return self._list_minute_baseline(query=query)
+            return await self._list_minute_baseline(query=query)
         if query.timespan == "minute" and query.multiplier in _SUPPORTED_MINUTE_AGG_MULTIPLIERS:
-            return self._list_minute_aggregated(query=query)
-        return self._list_direct_fallback(query=query)
+            return await self._list_minute_aggregated(query=query)
+        return await self._list_direct_fallback(query=query)
 
-    def prefetch_default(self, *, ticker: str) -> None:
+    async def prefetch_default(self, *, ticker: str) -> None:
         normalized = ticker.strip().upper()
         if not normalized:
             raise ValueError("Ticker is required")
 
+        await self._trading_calendar.ensure_holiday_cache()
         today = date.today()
         daily_start = today - timedelta(days=settings.market_data_daily_lookback_days)
         intraday_start = self._trading_calendar.shift_trading_day(
@@ -135,14 +137,14 @@ class MarketDataApplicationService:
             trading_days=-(settings.market_data_intraday_lookback_days - 1),
         )
 
-        self.list_bars(
+        await self.list_bars(
             ticker=normalized,
             timespan="day",
             multiplier=1,
             start_date=daily_start,
             end_date=today,
         )
-        self.list_bars(
+        await self.list_bars(
             ticker=normalized,
             timespan="minute",
             multiplier=1,
@@ -150,9 +152,10 @@ class MarketDataApplicationService:
             end_date=today,
         )
 
-    def list_snapshots(self, *, tickers: list[str]) -> list[MarketSnapshot]:
+    async def list_snapshots(self, *, tickers: list[str]) -> list[MarketSnapshot]:
         normalized_tickers = _normalize_tickers(tickers=tickers)
-        baselines = self._list_daily_snapshot_baselines(tickers=normalized_tickers)
+        await self._trading_calendar.ensure_holiday_cache()
+        baselines = await self._list_daily_snapshot_baselines(tickers=normalized_tickers)
         snapshots_by_symbol = {symbol: baseline.snapshot for symbol, baseline in baselines.items()}
 
         today = date.today()
@@ -165,7 +168,7 @@ class MarketDataApplicationService:
         if should_fetch_massive:
             request_tickers = normalized_tickers if today_is_trading_day else missing_symbols
             try:
-                payload = self._massive_client.list_snapshots(tickers=request_tickers)
+                payload = await self._massive_client.list_snapshots(tickers=request_tickers)
             except Exception as exc:
                 if not snapshots_by_symbol:
                     raise _map_market_data_upstream_error(exc) from exc
@@ -185,7 +188,7 @@ class MarketDataApplicationService:
 
         return [snapshots_by_symbol[symbol] for symbol in normalized_tickers if symbol in snapshots_by_symbol]
 
-    def list_trading_days(
+    async def list_trading_days(
         self,
         *,
         end_date: date | None,
@@ -194,12 +197,13 @@ class MarketDataApplicationService:
         if count < 1:
             raise ValueError("count must be >= 1")
         resolved_end = end_date or date.today()
+        await self._trading_calendar.ensure_holiday_cache()
         return self._trading_calendar.list_recent_trading_days(
             end_date=resolved_end,
             count=count,
         )
 
-    def precompute_minute_aggregates(
+    async def precompute_minute_aggregates(
         self,
         *,
         multiplier: int,
@@ -213,19 +217,20 @@ class MarketDataApplicationService:
 
         now = now or datetime.now(tz=timezone.utc)
         end_at = now
+        await self._trading_calendar.ensure_holiday_cache()
         keep_from_trade_date = self._trading_calendar.shift_trading_day(
             target_date=market_trade_date(point=now),
             trading_days=-(lookback_trade_days - 1),
         )
         start_at = datetime.combine(keep_from_trade_date, time.min, tzinfo=timezone.utc)
 
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_market_data_repo(uow)
-            tickers = repo.list_minute_tickers(start_at=start_at, end_at=end_at)
+            tickers = await repo.list_minute_tickers(start_at=start_at, end_at=end_at)
 
             produced = 0
             for ticker in tickers:
-                minute_bars = repo.list_minute_bars(
+                minute_bars = await repo.list_minute_bars(
                     ticker=ticker,
                     start_at=start_at,
                     end_at=end_at,
@@ -241,14 +246,14 @@ class MarketDataApplicationService:
                 )
                 if not aggregated:
                     continue
-                repo.upsert_minute_agg_bars(aggregated)
+                await repo.upsert_minute_agg_bars(aggregated)
                 produced += len(aggregated)
 
             if produced > 0:
-                uow.commit()
+                await uow.commit()
             return produced
 
-    def enforce_minute_retention(
+    async def enforce_minute_retention(
         self,
         *,
         keep_trade_days: int = 10,
@@ -259,31 +264,31 @@ class MarketDataApplicationService:
 
         _ = now
 
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_market_data_repo(uow)
             minute_cutoff_trade_date = _resolve_keep_from_trade_date(
-                trade_dates=repo.list_recent_minute_trade_dates(limit=keep_trade_days),
+                trade_dates=await repo.list_recent_minute_trade_dates(limit=keep_trade_days),
                 keep_trade_days=keep_trade_days,
             )
             agg_cutoff_trade_date = _resolve_keep_from_trade_date(
-                trade_dates=repo.list_recent_minute_agg_trade_dates(limit=keep_trade_days),
+                trade_dates=await repo.list_recent_minute_agg_trade_dates(limit=keep_trade_days),
                 keep_trade_days=keep_trade_days,
             )
 
             deleted_minute = 0
             if minute_cutoff_trade_date is not None:
-                deleted_minute = repo.delete_minute_bars_before_trade_date(
+                deleted_minute = await repo.delete_minute_bars_before_trade_date(
                     keep_from_trade_date=minute_cutoff_trade_date
                 )
 
             deleted_agg = 0
             if agg_cutoff_trade_date is not None:
-                deleted_agg = repo.delete_minute_agg_before_trade_date(
+                deleted_agg = await repo.delete_minute_agg_before_trade_date(
                     keep_from_trade_date=agg_cutoff_trade_date
                 )
 
             if deleted_minute > 0 or deleted_agg > 0:
-                uow.commit()
+                await uow.commit()
             return {
                 "minute_deleted": deleted_minute,
                 "minute_agg_deleted": deleted_agg,
@@ -305,13 +310,13 @@ class MarketDataApplicationService:
             return end_date - timedelta(days=settings.market_data_intraday_lookback_days)
         return end_date - timedelta(days=settings.market_data_daily_lookback_days)
 
-    def _list_day_baseline(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
-        with self._uow as uow:
+    async def _list_day_baseline(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
+        async with self._uow as uow:
             repo = _require_market_data_repo(uow)
-            coverage = repo.get_day_range_coverage(ticker=query.ticker)
+            coverage = await repo.get_day_range_coverage(ticker=query.ticker)
             if _coverage_contains(coverage=coverage, start_at=query.start_at, end_at=query.end_at):
                 return MarketBarsQueryResult(
-                    bars=repo.list_day_bars(
+                    bars=await repo.list_day_bars(
                         ticker=query.ticker,
                         start_at=query.start_at,
                         end_at=query.end_at,
@@ -321,7 +326,7 @@ class MarketDataApplicationService:
                     partial_range=False,
                 )
 
-            fetched = self._fetch_from_massive(
+            fetched = await self._fetch_from_massive(
                 ticker=query.ticker,
                 timespan="day",
                 multiplier=1,
@@ -329,10 +334,10 @@ class MarketDataApplicationService:
                 end_date=query.end_date,
             )
             if fetched:
-                repo.upsert_day_bars(fetched)
-                uow.commit()
+                await repo.upsert_day_bars(fetched)
+                await uow.commit()
 
-            bars = repo.list_day_bars(
+            bars = await repo.list_day_bars(
                 ticker=query.ticker,
                 start_at=query.start_at,
                 end_at=query.end_at,
@@ -344,13 +349,13 @@ class MarketDataApplicationService:
                 partial_range=False,
             )
 
-    def _list_minute_baseline(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
-        with self._uow as uow:
+    async def _list_minute_baseline(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
+        async with self._uow as uow:
             repo = _require_market_data_repo(uow)
-            coverage = repo.get_minute_range_coverage(ticker=query.ticker)
+            coverage = await repo.get_minute_range_coverage(ticker=query.ticker)
             if _coverage_contains(coverage=coverage, start_at=query.start_at, end_at=query.end_at):
                 return MarketBarsQueryResult(
-                    bars=repo.list_minute_bars(
+                    bars=await repo.list_minute_bars(
                         ticker=query.ticker,
                         start_at=query.start_at,
                         end_at=query.end_at,
@@ -360,7 +365,7 @@ class MarketDataApplicationService:
                     partial_range=False,
                 )
 
-            fetched = self._fetch_from_massive(
+            fetched = await self._fetch_from_massive(
                 ticker=query.ticker,
                 timespan="minute",
                 multiplier=1,
@@ -368,10 +373,10 @@ class MarketDataApplicationService:
                 end_date=query.end_date,
             )
             if fetched:
-                repo.upsert_minute_bars(fetched)
-                uow.commit()
+                await repo.upsert_minute_bars(fetched)
+                await uow.commit()
 
-            bars = repo.list_minute_bars(
+            bars = await repo.list_minute_bars(
                 ticker=query.ticker,
                 start_at=query.start_at,
                 end_at=query.end_at,
@@ -383,14 +388,14 @@ class MarketDataApplicationService:
                 partial_range=False,
             )
 
-    def _list_minute_aggregated(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
-        self._ensure_minute_baseline_coverage(query=query)
+    async def _list_minute_aggregated(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
+        await self._ensure_minute_baseline_coverage(query=query)
         now = datetime.now(tz=timezone.utc)
 
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_market_data_repo(uow)
 
-            finalized = repo.list_minute_agg_bars(
+            finalized = await repo.list_minute_agg_bars(
                 ticker=query.ticker,
                 multiplier=query.multiplier,
                 start_at=query.start_at,
@@ -417,7 +422,7 @@ class MarketDataApplicationService:
                         query.end_at + timedelta(microseconds=1),
                     )
                     if realtime_cutoff > bucket_start:
-                        minute_items = repo.list_minute_bars_for_bucket(
+                        minute_items = await repo.list_minute_bars_for_bucket(
                             ticker=query.ticker,
                             bucket_start_at=bucket_start,
                             bucket_end_at=realtime_cutoff,
@@ -447,11 +452,11 @@ class MarketDataApplicationService:
                 )
 
         if settings.market_data_enable_direct_fallback:
-            return self._list_direct_fallback(query=query)
+            return await self._list_direct_fallback(query=query)
         return MarketBarsQueryResult(bars=[], data_source="DB_AGG", partial_range=False)
 
-    def _list_direct_fallback(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
-        bars = self._fetch_from_massive(
+    async def _list_direct_fallback(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
+        bars = await self._fetch_from_massive(
             ticker=query.ticker,
             timespan=query.timespan,
             multiplier=query.multiplier,
@@ -464,14 +469,14 @@ class MarketDataApplicationService:
             partial_range=False,
         )
 
-    def _ensure_minute_baseline_coverage(self, *, query: _BarsQuery) -> None:
-        with self._uow as uow:
+    async def _ensure_minute_baseline_coverage(self, *, query: _BarsQuery) -> None:
+        async with self._uow as uow:
             repo = _require_market_data_repo(uow)
-            coverage = repo.get_minute_range_coverage(ticker=query.ticker)
+            coverage = await repo.get_minute_range_coverage(ticker=query.ticker)
             if _coverage_contains(coverage=coverage, start_at=query.start_at, end_at=query.end_at):
                 return
 
-            fetched = self._fetch_from_massive(
+            fetched = await self._fetch_from_massive(
                 ticker=query.ticker,
                 timespan="minute",
                 multiplier=1,
@@ -481,10 +486,10 @@ class MarketDataApplicationService:
             if not fetched:
                 return
 
-            repo.upsert_minute_bars(fetched)
-            uow.commit()
+            await repo.upsert_minute_bars(fetched)
+            await uow.commit()
 
-    def _fetch_from_massive(
+    async def _fetch_from_massive(
         self,
         *,
         ticker: str,
@@ -496,7 +501,7 @@ class MarketDataApplicationService:
         if self._massive_client is None:
             raise MarketDataUpstreamUnavailableError()
         try:
-            aggregates = self._massive_client.list_aggs(
+            aggregates = await self._massive_client.list_aggs(
                 ticker=ticker,
                 multiplier=multiplier,
                 timespan=timespan,
@@ -515,9 +520,9 @@ class MarketDataApplicationService:
             aggregates=aggregates,
         )
 
-    def _list_daily_snapshot_baselines(self, *, tickers: list[str]) -> dict[str, _DailySnapshotBaseline]:
+    async def _list_daily_snapshot_baselines(self, *, tickers: list[str]) -> dict[str, _DailySnapshotBaseline]:
         baselines: dict[str, _DailySnapshotBaseline] = {}
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = getattr(uow, "market_data_repo", None)
             if repo is None:
                 return baselines
@@ -526,7 +531,7 @@ class MarketDataApplicationService:
                 list_recent = getattr(repo, "list_recent_day_bars", None)
                 if list_recent is None:
                     continue
-                day_bars = list_recent(ticker=symbol, limit=2)
+                day_bars = await list_recent(ticker=symbol, limit=2)
                 if not day_bars:
                     continue
 

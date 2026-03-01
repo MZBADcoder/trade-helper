@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-import threading
 import time
 
 from app.domain.auth.constants import ERROR_AUTH_RATE_LIMITED
@@ -28,15 +28,15 @@ class AuthLoginThrottle:
         self._block_seconds = max(1, int(block_seconds))
         self._max_entries = max(1, int(max_entries))
         self._states: dict[str, _ThrottleState] = {}
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
 
-    def assert_allowed(self, *, key: str) -> None:
+    async def assert_allowed(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
 
         now = time.monotonic()
-        with self._lock:
+        async with self._lock:
             self._purge_expired(now=now)
             state = self._states.get(normalized)
             if state is None:
@@ -44,13 +44,13 @@ class AuthLoginThrottle:
             if state.blocked_until > now:
                 raise ValueError(ERROR_AUTH_RATE_LIMITED)
 
-    def record_failure(self, *, key: str) -> None:
+    async def record_failure(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
 
         now = time.monotonic()
-        with self._lock:
+        async with self._lock:
             self._purge_expired(now=now)
             state = self._states.get(normalized)
             if state is None and len(self._states) >= self._max_entries:
@@ -73,11 +73,11 @@ class AuthLoginThrottle:
                 blocked_until=blocked_until,
             )
 
-    def record_success(self, *, key: str) -> None:
+    async def record_success(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
-        with self._lock:
+        async with self._lock:
             self._states.pop(normalized, None)
 
     def _purge_expired(self, *, now: float) -> None:

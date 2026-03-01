@@ -10,35 +10,35 @@ router = APIRouter()
 
 
 @router.get("", response_model=list[WatchlistItemOut])
-def list_watchlist(
+async def list_watchlist(
     service: WatchlistApplicationService = Depends(get_watchlist_service),
     current_user: User = Depends(get_current_user),
 ) -> list[WatchlistItemOut]:
-    items = service.list_items(user_id=current_user.id)
+    items = await service.list_items(user_id=current_user.id)
     return [to_watchlist_item_out(item) for item in items]
 
 
 @router.post("", response_model=WatchlistItemOut)
-def add_watchlist_item(
+async def add_watchlist_item(
     payload: WatchlistItemCreate,
     service: WatchlistApplicationService = Depends(get_watchlist_service),
     current_user: User = Depends(get_current_user),
 ) -> WatchlistItemOut:
     try:
-        item = service.add_item(user_id=current_user.id, ticker=payload.ticker)
+        item = await service.add_item(user_id=current_user.id, ticker=payload.ticker)
         return to_watchlist_item_out(item)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/{ticker}", response_model=WatchlistItemDeletedOut)
-def delete_watchlist_item(
+async def delete_watchlist_item(
     ticker: str,
     service: WatchlistApplicationService = Depends(get_watchlist_service),
     current_user: User = Depends(get_current_user),
 ) -> WatchlistItemDeletedOut:
     try:
-        service.remove_item(user_id=current_user.id, ticker=ticker)
+        await service.remove_item(user_id=current_user.id, ticker=ticker)
         return to_watchlist_item_deleted_out(ticker)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

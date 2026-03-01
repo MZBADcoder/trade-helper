@@ -31,7 +31,7 @@ class FakeWsAuthService:
             last_login_at=datetime(2026, 2, 10, 14, 0, 0, tzinfo=timezone.utc),
         )
 
-    def get_current_user_from_token(self, *, token: str) -> User:
+    async def get_current_user_from_token(self, *, token: str) -> User:
         if token != self._valid_token:
             raise ValueError("AUTH_INVALID_TOKEN")
         return self._user
@@ -41,7 +41,7 @@ class FakeWsWatchlistService:
     def __init__(self, *, symbols: list[str]) -> None:
         self._symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
 
-    def list_items(self, *, user_id: int) -> list[WatchlistItem]:
+    async def list_items(self, *, user_id: int) -> list[WatchlistItem]:
         _ = user_id
         return [WatchlistItem(ticker=symbol) for symbol in self._symbols]
 

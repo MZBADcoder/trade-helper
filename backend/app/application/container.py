@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.infrastructure.auth.login_throttle import RedisAuthLoginThrottle
 from app.infrastructure.clients.massive import MassiveClient
 from app.infrastructure.clients.massive_stream import MassiveStocksWebSocketClient
+from app.infrastructure.db.session import close_db_engine
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 from app.infrastructure.streaming.redis_event_bus import (
@@ -202,3 +203,15 @@ async def shutdown_stock_market_realtime_publisher() -> None:
     _massive_stocks_stream_client.cache_clear()
     _redis_market_event_publisher.cache_clear()
     _redis_market_topic_registry.cache_clear()
+
+
+async def shutdown_auth_login_throttle() -> None:
+    if _auth_login_throttle.cache_info().currsize == 0:
+        return
+    throttle = _auth_login_throttle()
+    await throttle.close()
+    _auth_login_throttle.cache_clear()
+
+
+async def shutdown_db_runtime() -> None:
+    await close_db_engine()

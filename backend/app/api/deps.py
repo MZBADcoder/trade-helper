@@ -40,7 +40,7 @@ def get_market_stream_hub() -> StockMarketStreamHub:
     return container.build_market_stream_hub()
 
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     service: AuthApplicationService = Depends(get_auth_service),
 ) -> User:
@@ -48,7 +48,7 @@ def get_current_user(
         raise _unauthorized_error()
 
     try:
-        return service.get_current_user_from_token(token=credentials.credentials)
+        return await service.get_current_user_from_token(token=credentials.credentials)
     except ValueError as exc:
         raise_api_error(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -63,7 +63,7 @@ class FakeMarketDataRepository:
         self.deleted_minute_cutoff: date | None = None
         self.deleted_minute_agg_cutoff: date | None = None
 
-    def list_day_bars(
+    async def list_day_bars(
         self,
         *,
         ticker: str,
@@ -73,7 +73,7 @@ class FakeMarketDataRepository:
     ) -> list[MarketBar]:
         return _filter_by_range(self.day_bars, ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
 
-    def list_minute_bars(
+    async def list_minute_bars(
         self,
         *,
         ticker: str,
@@ -83,7 +83,7 @@ class FakeMarketDataRepository:
     ) -> list[MarketBar]:
         return _filter_by_range(self.minute_bars, ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
 
-    def list_minute_agg_bars(
+    async def list_minute_agg_bars(
         self,
         *,
         ticker: str,
@@ -106,7 +106,7 @@ class FakeMarketDataRepository:
             return items[:limit]
         return items
 
-    def list_minute_bars_for_bucket(
+    async def list_minute_bars_for_bucket(
         self,
         *,
         ticker: str,
@@ -121,27 +121,27 @@ class FakeMarketDataRepository:
         items.sort(key=lambda bar: bar.start_at)
         return items
 
-    def get_day_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
+    async def get_day_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
         _ = ticker
         return self.day_coverage
 
-    def get_minute_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
+    async def get_minute_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
         _ = ticker
         return self.minute_coverage
 
-    def upsert_day_bars(self, bars: list[MarketBar]) -> None:
+    async def upsert_day_bars(self, bars: list[MarketBar]) -> None:
         self.upserted_day.extend(bars)
         self.day_bars = sorted(bars, key=lambda bar: bar.start_at)
 
-    def upsert_minute_bars(self, bars: list[MarketBar]) -> None:
+    async def upsert_minute_bars(self, bars: list[MarketBar]) -> None:
         self.upserted_minute.extend(bars)
         self.minute_bars = sorted(bars, key=lambda bar: bar.start_at)
 
-    def upsert_minute_agg_bars(self, bars: list[MarketBar]) -> None:
+    async def upsert_minute_agg_bars(self, bars: list[MarketBar]) -> None:
         self.upserted_minute_agg.extend(bars)
         self.minute_agg_bars = sorted(bars, key=lambda bar: bar.start_at)
 
-    def list_minute_tickers(
+    async def list_minute_tickers(
         self,
         *,
         start_at: datetime,
@@ -151,25 +151,25 @@ class FakeMarketDataRepository:
         symbols = sorted({bar.ticker for bar in self.minute_bars})
         return symbols
 
-    def list_recent_minute_trade_dates(self, *, limit: int) -> list[date]:
+    async def list_recent_minute_trade_dates(self, *, limit: int) -> list[date]:
         if self.minute_trade_dates:
             ordered = sorted(set(self.minute_trade_dates), reverse=True)
             return ordered[:limit]
         ordered = sorted({bar.start_at.date() for bar in self.minute_bars}, reverse=True)
         return ordered[:limit]
 
-    def list_recent_minute_agg_trade_dates(self, *, limit: int) -> list[date]:
+    async def list_recent_minute_agg_trade_dates(self, *, limit: int) -> list[date]:
         if self.minute_agg_trade_dates:
             ordered = sorted(set(self.minute_agg_trade_dates), reverse=True)
             return ordered[:limit]
         ordered = sorted({bar.start_at.date() for bar in self.minute_agg_bars}, reverse=True)
         return ordered[:limit]
 
-    def delete_minute_bars_before_trade_date(self, *, keep_from_trade_date: date) -> int:
+    async def delete_minute_bars_before_trade_date(self, *, keep_from_trade_date: date) -> int:
         self.deleted_minute_cutoff = keep_from_trade_date
         return self.minute_delete_return
 
-    def delete_minute_agg_before_trade_date(self, *, keep_from_trade_date: date) -> int:
+    async def delete_minute_agg_before_trade_date(self, *, keep_from_trade_date: date) -> int:
         self.deleted_minute_agg_cutoff = keep_from_trade_date
         return self.minute_agg_delete_return
 
@@ -181,16 +181,16 @@ class FakeUoW:
         self.watchlist_repo = None
         self.commits = 0
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):
         return None
 
-    def commit(self) -> None:
+    async def commit(self) -> None:
         self.commits += 1
 
-    def rollback(self) -> None:
+    async def rollback(self) -> None:
         return None
 
 
@@ -199,7 +199,7 @@ class FakeMassiveClient:
         self.payload_by_key = payload_by_key
         self.calls: list[tuple[str, int]] = []
 
-    def list_aggs(
+    async def list_aggs(
         self,
         *,
         ticker: str,
@@ -215,9 +215,12 @@ class FakeMassiveClient:
         self.calls.append((timespan, multiplier))
         return self.payload_by_key.get((timespan, multiplier), [])
 
+    async def list_market_holidays(self) -> list[dict]:
+        return []
+
 
 class FailMassiveClient:
-    def list_aggs(
+    async def list_aggs(
         self,
         *,
         ticker: str,
@@ -232,8 +235,11 @@ class FailMassiveClient:
         _ = (ticker, multiplier, timespan, from_date, to_date, adjusted, sort, limit)
         raise AssertionError("Massive client should not be called")
 
+    async def list_market_holidays(self) -> list[dict]:
+        return []
 
-def test_list_day_bars_reads_db_when_coverage_hit() -> None:
+
+async def test_list_day_bars_reads_db_when_coverage_hit() -> None:
     repo = FakeMarketDataRepository()
     repo.day_coverage = (
         datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -252,7 +258,7 @@ def test_list_day_bars_reads_db_when_coverage_hit() -> None:
         massive_client=FailMassiveClient(),
     )
 
-    result = service.list_bars(
+    result = await service.list_bars(
         ticker="aapl",
         timespan="day",
         multiplier=1,
@@ -264,7 +270,7 @@ def test_list_day_bars_reads_db_when_coverage_hit() -> None:
     assert result[0].ticker == "AAPL"
 
 
-def test_list_minute_baseline_fetches_massive_when_missing() -> None:
+async def test_list_minute_baseline_fetches_massive_when_missing() -> None:
     repo = FakeMarketDataRepository()
     massive = FakeMassiveClient(
         {
@@ -288,7 +294,7 @@ def test_list_minute_baseline_fetches_massive_when_missing() -> None:
         massive_client=massive,
     )
 
-    result = service.list_bars(
+    result = await service.list_bars(
         ticker="MSFT",
         timespan="minute",
         multiplier=1,
@@ -301,7 +307,7 @@ def test_list_minute_baseline_fetches_massive_when_missing() -> None:
     assert result[0].ticker == "MSFT"
 
 
-def test_list_minute_aggregated_returns_db_agg_mixed_for_open_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_minute_aggregated_returns_db_agg_mixed_for_open_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     fixed_now = datetime(2026, 2, 10, 15, 7, tzinfo=timezone.utc)  # 10:07 ET
 
     class FixedDateTime(datetime):
@@ -339,7 +345,7 @@ def test_list_minute_aggregated_returns_db_agg_mixed_for_open_bucket(monkeypatch
         massive_client=FailMassiveClient(),
     )
 
-    result = service.list_bars_with_meta(
+    result = await service.list_bars_with_meta(
         ticker="AAPL",
         timespan="minute",
         multiplier=5,
@@ -354,7 +360,7 @@ def test_list_minute_aggregated_returns_db_agg_mixed_for_open_bucket(monkeypatch
     assert result.bars[1].is_final is False
 
 
-def test_list_minute_aggregated_fallbacks_to_rest_when_preagg_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_minute_aggregated_fallbacks_to_rest_when_preagg_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     fixed_now = datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc)  # 17:00 ET, no open bucket
 
     class FixedDateTime(datetime):
@@ -387,7 +393,7 @@ def test_list_minute_aggregated_fallbacks_to_rest_when_preagg_empty(monkeypatch:
     )
     service = MarketDataApplicationService(uow=FakeUoW(market_data_repo=repo), massive_client=massive)
 
-    result = service.list_bars_with_meta(
+    result = await service.list_bars_with_meta(
         ticker="AAPL",
         timespan="minute",
         multiplier=5,
@@ -400,7 +406,7 @@ def test_list_minute_aggregated_fallbacks_to_rest_when_preagg_empty(monkeypatch:
     assert massive.calls[-1] == ("minute", 5)
 
 
-def test_precompute_minute_aggregates_only_writes_final_buckets() -> None:
+async def test_precompute_minute_aggregates_only_writes_final_buckets() -> None:
     repo = FakeMarketDataRepository()
     repo.minute_bars = [
         _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc), close=100.0),
@@ -416,7 +422,7 @@ def test_precompute_minute_aggregates_only_writes_final_buckets() -> None:
         massive_client=FailMassiveClient(),
     )
 
-    produced = service.precompute_minute_aggregates(
+    produced = await service.precompute_minute_aggregates(
         multiplier=5,
         lookback_trade_days=1,
         now=datetime(2026, 2, 10, 15, 7, tzinfo=timezone.utc),
@@ -428,7 +434,7 @@ def test_precompute_minute_aggregates_only_writes_final_buckets() -> None:
     assert repo.upserted_minute_agg[0].end_at == datetime(2026, 2, 10, 15, 5, tzinfo=timezone.utc)
 
 
-def test_enforce_minute_retention_uses_trade_day_cutoff() -> None:
+async def test_enforce_minute_retention_uses_trade_day_cutoff() -> None:
     repo = FakeMarketDataRepository()
     repo.minute_trade_dates = [
         date(2026, 2, 17),
@@ -445,7 +451,7 @@ def test_enforce_minute_retention_uses_trade_day_cutoff() -> None:
         massive_client=FailMassiveClient(),
     )
 
-    result = service.enforce_minute_retention(keep_trade_days=3)
+    result = await service.enforce_minute_retention(keep_trade_days=3)
 
     assert result == {"minute_deleted": 12, "minute_agg_deleted": 6}
     assert repo.deleted_minute_cutoff == date(2026, 2, 13)
@@ -453,7 +459,7 @@ def test_enforce_minute_retention_uses_trade_day_cutoff() -> None:
     assert uow.commits == 1
 
 
-def test_enforce_minute_retention_skips_delete_when_trade_days_insufficient() -> None:
+async def test_enforce_minute_retention_skips_delete_when_trade_days_insufficient() -> None:
     repo = FakeMarketDataRepository()
     repo.minute_trade_dates = [date(2026, 2, 17), date(2026, 2, 16)]
     repo.minute_agg_trade_dates = [date(2026, 2, 17), date(2026, 2, 16)]
@@ -463,7 +469,7 @@ def test_enforce_minute_retention_skips_delete_when_trade_days_insufficient() ->
         massive_client=FailMassiveClient(),
     )
 
-    result = service.enforce_minute_retention(keep_trade_days=3)
+    result = await service.enforce_minute_retention(keep_trade_days=3)
 
     assert result == {"minute_deleted": 0, "minute_agg_deleted": 0}
     assert repo.deleted_minute_cutoff is None
@@ -471,7 +477,7 @@ def test_enforce_minute_retention_skips_delete_when_trade_days_insufficient() ->
     assert uow.commits == 0
 
 
-def test_list_bars_rejects_oversized_range_when_only_start_date_is_provided() -> None:
+async def test_list_bars_rejects_oversized_range_when_only_start_date_is_provided() -> None:
     repo = FakeMarketDataRepository()
     service = MarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
@@ -479,7 +485,7 @@ def test_list_bars_rejects_oversized_range_when_only_start_date_is_provided() ->
     )
 
     with pytest.raises(MarketDataRangeTooLargeError):
-        service.list_bars(
+        await service.list_bars(
             ticker="AAPL",
             timespan="minute",
             multiplier=1,
@@ -489,7 +495,7 @@ def test_list_bars_rejects_oversized_range_when_only_start_date_is_provided() ->
         )
 
 
-def test_list_bars_allows_default_minute_range_without_explicit_bounds() -> None:
+async def test_list_bars_allows_default_minute_range_without_explicit_bounds() -> None:
     repo = FakeMarketDataRepository()
     repo.minute_coverage = (
         datetime(2000, 1, 1, tzinfo=timezone.utc),
@@ -508,7 +514,7 @@ def test_list_bars_allows_default_minute_range_without_explicit_bounds() -> None
         massive_client=FailMassiveClient(),
     )
 
-    bars = service.list_bars(
+    bars = await service.list_bars(
         ticker="AAPL",
         timespan="minute",
         multiplier=1,
@@ -520,7 +526,7 @@ def test_list_bars_allows_default_minute_range_without_explicit_bounds() -> None
     assert isinstance(bars, list)
 
 
-def test_list_bars_allows_to_only_minute_range_with_default_start() -> None:
+async def test_list_bars_allows_to_only_minute_range_with_default_start() -> None:
     repo = FakeMarketDataRepository()
     repo.minute_coverage = (
         datetime(2000, 1, 1, tzinfo=timezone.utc),
@@ -539,7 +545,7 @@ def test_list_bars_allows_to_only_minute_range_with_default_start() -> None:
         massive_client=FailMassiveClient(),
     )
 
-    bars = service.list_bars(
+    bars = await service.list_bars(
         ticker="AAPL",
         timespan="minute",
         multiplier=1,
@@ -551,7 +557,7 @@ def test_list_bars_allows_to_only_minute_range_with_default_start() -> None:
     assert isinstance(bars, list)
 
 
-def test_prefetch_default_does_not_apply_request_range_limit() -> None:
+async def test_prefetch_default_does_not_apply_request_range_limit() -> None:
     repo = FakeMarketDataRepository()
     repo.day_coverage = (
         datetime(2000, 1, 1, tzinfo=timezone.utc),
@@ -582,17 +588,17 @@ def test_prefetch_default_does_not_apply_request_range_limit() -> None:
         massive_client=FailMassiveClient(),
     )
 
-    service.prefetch_default(ticker="AAPL")
+    await service.prefetch_default(ticker="AAPL")
 
 
-def test_list_trading_days_skips_weekend() -> None:
+async def test_list_trading_days_skips_weekend() -> None:
     repo = FakeMarketDataRepository()
     service = MarketDataApplicationService(
         uow=FakeUoW(market_data_repo=repo),
         massive_client=FailMassiveClient(),
     )
 
-    days = service.list_trading_days(
+    days = await service.list_trading_days(
         end_date=date(2026, 2, 24),
         count=3,
     )

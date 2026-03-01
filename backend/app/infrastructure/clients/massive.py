@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping
 import re
 from typing import Any
@@ -26,7 +27,7 @@ class MassiveClient:
             )
         self._client = SDKRestClient(api_key)
 
-    def list_aggs(
+    async def list_aggs(
         self,
         *,
         ticker: str,
@@ -37,8 +38,89 @@ class MassiveClient:
         adjusted: bool = True,
         sort: str = "asc",
         limit: int = 50000,
-    ) -> Iterable[Any]:
-        return self._client.list_aggs(
+    ) -> list[Any]:
+        return await asyncio.to_thread(
+            self._list_aggs_sync,
+            ticker=ticker,
+            multiplier=multiplier,
+            timespan=timespan,
+            from_date=from_date,
+            to_date=to_date,
+            adjusted=adjusted,
+            sort=sort,
+            limit=limit,
+        )
+
+    async def list_snapshots(self, *, tickers: list[str]) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_snapshots_sync, tickers=tickers)
+
+    async def list_market_holidays(self) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_market_holidays_sync)
+
+    async def get_market_status(self) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_market_status_sync)
+
+    async def list_options_expirations(
+        self,
+        *,
+        underlying: str,
+        limit: int,
+        include_expired: bool,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self._list_options_expirations_sync,
+            underlying=underlying,
+            limit=limit,
+            include_expired=include_expired,
+        )
+
+    async def list_options_chain(
+        self,
+        *,
+        underlying: str,
+        expiration: str,
+        strike_from: float | None,
+        strike_to: float | None,
+        option_type: str,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._list_options_chain_sync,
+            underlying=underlying,
+            expiration=expiration,
+            strike_from=strike_from,
+            strike_to=strike_to,
+            option_type=option_type,
+            limit=limit,
+            cursor=cursor,
+        )
+
+    async def get_options_contract(
+        self,
+        *,
+        option_ticker: str,
+        include_greeks: bool,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._get_options_contract_sync,
+            option_ticker=option_ticker,
+            include_greeks=include_greeks,
+        )
+
+    def _list_aggs_sync(
+        self,
+        *,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_date: str,
+        to_date: str,
+        adjusted: bool = True,
+        sort: str = "asc",
+        limit: int = 50000,
+    ) -> list[Any]:
+        raw = self._client.list_aggs(
             ticker,
             multiplier,
             timespan,
@@ -48,8 +130,9 @@ class MassiveClient:
             sort=sort,
             limit=limit,
         )
+        return _materialize_result(raw)
 
-    def list_snapshots(self, *, tickers: list[str]) -> list[dict[str, Any]]:
+    def _list_snapshots_sync(self, *, tickers: list[str]) -> list[dict[str, Any]]:
         joined = ",".join(tickers)
         candidates = (
             ("get_snapshot_all", {"market_type": "stocks", "tickers": joined}),
@@ -59,18 +142,18 @@ class MassiveClient:
         raw = self._call_first_supported(candidates)
         return self._normalize_result_list(raw)
 
-    def list_market_holidays(self) -> list[dict[str, Any]]:
+    def _list_market_holidays_sync(self) -> list[dict[str, Any]]:
         candidates = (("get_market_holidays", {}),)
         raw = self._call_first_supported(candidates)
         return self._normalize_result_list(raw)
 
-    def get_market_status(self) -> dict[str, Any]:
+    def _get_market_status_sync(self) -> dict[str, Any]:
         candidates = (("get_market_status", {}),)
         raw = self._call_first_supported(candidates)
         normalized = _to_dict(raw)
         return normalized if normalized is not None else {}
 
-    def list_options_expirations(
+    def _list_options_expirations_sync(
         self,
         *,
         underlying: str,
@@ -98,7 +181,7 @@ class MassiveClient:
         raw = self._call_first_supported(candidates)
         return self._normalize_result_list(raw)
 
-    def list_options_chain(
+    def _list_options_chain_sync(
         self,
         *,
         underlying: str,
@@ -150,7 +233,7 @@ class MassiveClient:
             return raw
         return {"results": self._normalize_result_list(raw), "next_url": None}
 
-    def get_options_contract(
+    def _get_options_contract_sync(
         self,
         *,
         option_ticker: str,
@@ -180,7 +263,6 @@ class MassiveClient:
             try:
                 return method(**kwargs)
             except TypeError:
-                # SDK signatures vary by version; try next candidate.
                 continue
         raise RuntimeError("Massive SDK does not provide the requested method")
 
@@ -200,6 +282,18 @@ class MassiveClient:
         if isinstance(raw, Iterable):
             return [item_dict for item in raw if (item_dict := _to_dict(item)) is not None]
         return []
+
+
+def _materialize_result(raw: Any) -> list[Any]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, Mapping):
+        return [raw]
+    if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+        return list(raw)
+    return [raw]
 
 
 def _to_dict(raw: Any) -> dict[str, Any] | None:

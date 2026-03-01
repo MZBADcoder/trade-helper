@@ -12,7 +12,7 @@ class FakeMassiveOptionsClient:
         self.chain_calls: list[dict] = []
         self.contract_calls: list[dict] = []
 
-    def list_options_expirations(
+    async def list_options_expirations(
         self,
         *,
         underlying: str,
@@ -32,7 +32,7 @@ class FakeMassiveOptionsClient:
             {"expiration_date": "2099-03-21"},
         ]
 
-    def list_options_chain(
+    async def list_options_chain(
         self,
         *,
         underlying: str,
@@ -73,7 +73,7 @@ class FakeMassiveOptionsClient:
             "next_url": "https://api.massive.com/v3/snapshot/options/AAPL?cursor=eyJvZmZzZXQiOjIwMH0=",
         }
 
-    def get_options_contract(
+    async def get_options_contract(
         self,
         *,
         option_ticker: str,
@@ -112,26 +112,26 @@ class FakeMassiveOptionsClient:
         }
 
 
-def test_list_expirations_raises_options_upstream_unavailable_without_client() -> None:
+async def test_list_expirations_raises_options_upstream_unavailable_without_client() -> None:
     service = OptionsApplicationService()
 
     with pytest.raises(ValueError, match="OPTIONS_UPSTREAM_UNAVAILABLE"):
-        service.list_expirations(underlying="AAPL")
+        await service.list_expirations(underlying="AAPL")
 
 
-def test_list_expirations_raises_options_upstream_unavailable_when_disabled() -> None:
+async def test_list_expirations_raises_options_upstream_unavailable_when_disabled() -> None:
     client = FakeMassiveOptionsClient()
     service = OptionsApplicationService(massive_client=client, enabled=False)
 
     with pytest.raises(ValueError, match="OPTIONS_UPSTREAM_UNAVAILABLE"):
-        service.list_expirations(underlying="AAPL")
+        await service.list_expirations(underlying="AAPL")
 
 
-def test_list_expirations_returns_grouped_result() -> None:
+async def test_list_expirations_returns_grouped_result() -> None:
     client = FakeMassiveOptionsClient()
     service = OptionsApplicationService(massive_client=client)
 
-    result = service.list_expirations(underlying="aapl", limit=12, include_expired=False)
+    result = await service.list_expirations(underlying="aapl", limit=12, include_expired=False)
 
     assert isinstance(result, OptionExpirationsResult)
     assert result.underlying == "AAPL"
@@ -142,26 +142,26 @@ def test_list_expirations_returns_grouped_result() -> None:
     assert client.expirations_calls[0]["underlying"] == "AAPL"
 
 
-def test_list_expirations_rejects_invalid_limit() -> None:
+async def test_list_expirations_rejects_invalid_limit() -> None:
     client = FakeMassiveOptionsClient()
     service = OptionsApplicationService(massive_client=client)
 
     with pytest.raises(ValueError, match="OPTIONS_INVALID_LIMIT"):
-        service.list_expirations(underlying="AAPL", limit=37)
+        await service.list_expirations(underlying="AAPL", limit=37)
 
 
-def test_list_chain_raises_options_upstream_unavailable_without_client() -> None:
+async def test_list_chain_raises_options_upstream_unavailable_without_client() -> None:
     service = OptionsApplicationService()
 
     with pytest.raises(ValueError, match="OPTIONS_UPSTREAM_UNAVAILABLE"):
-        service.list_chain(underlying="AAPL", expiration="2026-02-21")
+        await service.list_chain(underlying="AAPL", expiration="2026-02-21")
 
 
-def test_list_chain_returns_domain_result() -> None:
+async def test_list_chain_returns_domain_result() -> None:
     client = FakeMassiveOptionsClient()
     service = OptionsApplicationService(massive_client=client)
 
-    result = service.list_chain(
+    result = await service.list_chain(
         underlying="aapl",
         expiration="2026-02-21",
         strike_from=200,
@@ -179,26 +179,26 @@ def test_list_chain_returns_domain_result() -> None:
     assert client.chain_calls[0]["underlying"] == "AAPL"
 
 
-def test_list_chain_rejects_invalid_expiration() -> None:
+async def test_list_chain_rejects_invalid_expiration() -> None:
     client = FakeMassiveOptionsClient()
     service = OptionsApplicationService(massive_client=client)
 
     with pytest.raises(ValueError, match="OPTIONS_INVALID_EXPIRATION"):
-        service.list_chain(underlying="AAPL", expiration="20260221")
+        await service.list_chain(underlying="AAPL", expiration="20260221")
 
 
-def test_get_contract_raises_options_upstream_unavailable_without_client() -> None:
+async def test_get_contract_raises_options_upstream_unavailable_without_client() -> None:
     service = OptionsApplicationService()
 
     with pytest.raises(ValueError, match="OPTIONS_UPSTREAM_UNAVAILABLE"):
-        service.get_contract(option_ticker="O:AAPL260221C00210000")
+        await service.get_contract(option_ticker="O:AAPL260221C00210000")
 
 
-def test_get_contract_returns_domain_result_with_greeks() -> None:
+async def test_get_contract_returns_domain_result_with_greeks() -> None:
     client = FakeMassiveOptionsClient()
     service = OptionsApplicationService(massive_client=client)
 
-    result = service.get_contract(option_ticker="o:aapl260221c00210000")
+    result = await service.get_contract(option_ticker="o:aapl260221c00210000")
 
     assert isinstance(result, OptionContract)
     assert result.option_ticker == "O:AAPL260221C00210000"
@@ -210,11 +210,11 @@ def test_get_contract_returns_domain_result_with_greeks() -> None:
     assert client.contract_calls[0]["include_greeks"] is True
 
 
-def test_get_contract_omits_greeks_when_disabled() -> None:
+async def test_get_contract_omits_greeks_when_disabled() -> None:
     client = FakeMassiveOptionsClient()
     service = OptionsApplicationService(massive_client=client)
 
-    result = service.get_contract(
+    result = await service.get_contract(
         option_ticker="O:AAPL260221C00210000",
         include_greeks=False,
     )

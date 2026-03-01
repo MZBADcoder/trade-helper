@@ -5,8 +5,8 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from typing import Any
 
-from app.domain.options.schemas import OptionChainResult, OptionContract, OptionExpirationsResult
-from app.domain.options.schemas import OptionChainItem, OptionExpiration, OptionGreeks, OptionQuote, OptionSession
+from app.domain.options.schemas import OptionChainItem, OptionChainResult, OptionContract, OptionExpirationsResult
+from app.domain.options.schemas import OptionExpiration, OptionGreeks, OptionQuote, OptionSession
 from app.infrastructure.clients.massive import MassiveClient
 
 _UNDERLYING_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
@@ -24,7 +24,7 @@ class OptionsApplicationService:
         self._massive_client = massive_client
         self._enabled = enabled
 
-    def list_expirations(
+    async def list_expirations(
         self,
         *,
         underlying: str,
@@ -37,7 +37,7 @@ class OptionsApplicationService:
             raise ValueError("OPTIONS_INVALID_LIMIT")
 
         try:
-            contracts = self._massive_client.list_options_expirations(
+            contracts = await self._massive_client.list_options_expirations(
                 underlying=normalized,
                 limit=limit,
                 include_expired=include_expired,
@@ -56,7 +56,7 @@ class OptionsApplicationService:
             updated_at=datetime.now(tz=timezone.utc),
         )
 
-    def list_chain(
+    async def list_chain(
         self,
         *,
         underlying: str,
@@ -80,7 +80,7 @@ class OptionsApplicationService:
             raise ValueError("OPTIONS_INVALID_LIMIT")
 
         try:
-            payload = self._massive_client.list_options_chain(
+            payload = await self._massive_client.list_options_chain(
                 underlying=normalized_underlying,
                 expiration=expiration,
                 strike_from=strike_from,
@@ -105,7 +105,7 @@ class OptionsApplicationService:
             next_cursor=_extract_next_cursor(payload),
         )
 
-    def get_contract(
+    async def get_contract(
         self,
         *,
         option_ticker: str,
@@ -117,7 +117,7 @@ class OptionsApplicationService:
             raise ValueError("OPTIONS_INVALID_TICKER")
 
         try:
-            payload = self._massive_client.get_options_contract(
+            payload = await self._massive_client.get_options_contract(
                 option_ticker=normalized_ticker,
                 include_greeks=include_greeks,
             )
@@ -258,38 +258,41 @@ def _to_option_contract(
     if include_greeks:
         greeks_value = _to_greeks(_extract_value(raw, "greeks"))
 
-    quote_raw = _extract_value(raw, "quote")
-    session_raw = _extract_value(raw, "session")
     return OptionContract(
         option_ticker=option_ticker,
         underlying=underlying.upper(),
         expiration=expiration,
         option_type=(_extract_str(raw, "option_type", "contract_type") or "call").lower(),
         strike=_extract_float(raw, "strike", "strike_price"),
-        multiplier=int(_extract_float(raw, "multiplier")) or 100,
-        quote=OptionQuote(
-            bid=_extract_float(quote_raw or raw, "bid"),
-            ask=_extract_float(quote_raw or raw, "ask"),
-            last=_extract_float(quote_raw or raw, "last"),
-            updated_at=_extract_datetime(quote_raw or raw, "updated_at", "as_of")
-            or datetime.now(tz=timezone.utc),
-        ),
-        session=OptionSession(
-            open=_extract_float(session_raw or raw, "open"),
-            high=_extract_float(session_raw or raw, "high"),
-            low=_extract_float(session_raw or raw, "low"),
-            volume=int(_extract_float(session_raw or raw, "volume")),
-            open_interest=int(_extract_float(session_raw or raw, "open_interest")),
-        ),
+        multiplier=int(_extract_float(raw, "multiplier", default=100)),
+        quote=_to_quote(_extract_value(raw, "quote")),
+        session=_to_session(_extract_value(raw, "session")),
         greeks=greeks_value,
         source=(_extract_str(raw, "source") or "REST").upper(),
     )
 
 
-def _to_greeks(raw: object | None) -> OptionGreeks | None:
+def _to_quote(raw: object) -> OptionQuote:
+    return OptionQuote(
+        bid=_extract_float(raw, "bid"),
+        ask=_extract_float(raw, "ask"),
+        last=_extract_float(raw, "last"),
+        updated_at=_extract_datetime(raw, "updated_at", "as_of") or datetime.now(tz=timezone.utc),
+    )
+
+
+def _to_session(raw: object) -> OptionSession:
+    return OptionSession(
+        open=_extract_float(raw, "open"),
+        high=_extract_float(raw, "high"),
+        low=_extract_float(raw, "low"),
+        volume=int(_extract_float(raw, "volume")),
+        open_interest=int(_extract_float(raw, "open_interest")),
+    )
+
+
+def _to_greeks(raw: object) -> OptionGreeks | None:
     if raw is None:
-        return None
-    if not isinstance(raw, dict):
         return None
     return OptionGreeks(
         delta=_extract_float(raw, "delta"),
@@ -300,63 +303,57 @@ def _to_greeks(raw: object | None) -> OptionGreeks | None:
     )
 
 
-def _extract_value(raw: object, key: str) -> object | None:
+def _extract_value(raw: object, *keys: str) -> object | None:
     if isinstance(raw, dict):
-        return raw.get(key)
-    if hasattr(raw, key):
-        return getattr(raw, key)
+        for key in keys:
+            if key in raw:
+                return raw.get(key)
+        return None
+    for key in keys:
+        value = getattr(raw, key, None)
+        if value is not None:
+            return value
     return None
 
 
 def _extract_str(raw: object, *keys: str) -> str:
-    for key in keys:
-        value = _extract_value(raw, key)
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
+    value = _extract_value(raw, *keys)
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
-def _extract_float(raw: object, *keys: str) -> float:
-    for key in keys:
-        value = _extract_value(raw, key)
-        if value is None:
-            continue
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            continue
-    return 0.0
+def _extract_float(raw: object, *keys: str, default: float = 0.0) -> float:
+    value = _extract_value(raw, *keys)
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _extract_datetime(raw: object, *keys: str) -> datetime | None:
-    value: object | None = None
-    for key in keys:
-        value = _extract_value(raw, key)
-        if value is not None:
-            break
-    if value is None:
+    value = _extract_value(raw, *keys)
+    if value in (None, ""):
         return None
-    return _to_utc_datetime(value)
-
-
-def _to_utc_datetime(value: object) -> datetime | None:
     if isinstance(value, datetime):
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
-    if isinstance(value, str):
-        raw = value.strip()
-        if not raw:
-            return None
-        normalized = raw.replace("Z", "+00:00")
-        try:
-            parsed = datetime.fromisoformat(normalized)
-        except ValueError:
-            return None
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    return None
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value) / 1000, tz=timezone.utc)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

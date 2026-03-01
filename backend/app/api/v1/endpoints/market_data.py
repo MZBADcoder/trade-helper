@@ -48,7 +48,7 @@ _MARKET_DATA_ERROR_MAPPING = {
 
 
 @router.get("/bars", response_model=list[MarketBarOut])
-def list_bars(
+async def list_bars(
     response: Response,
     request: MarketBarsRequest = Depends(parse_market_bars_request),
     service: MarketDataApplicationService = Depends(get_market_data_service),
@@ -56,7 +56,7 @@ def list_bars(
 ) -> list[MarketBarOut]:
     _ = current_user
     try:
-        result = service.list_bars_with_meta(
+        result = await service.list_bars_with_meta(
             ticker=request.symbol,
             timespan=request.timespan,
             multiplier=request.multiplier,
@@ -74,28 +74,28 @@ def list_bars(
 
 
 @router.get("/snapshots", response_model=MarketSnapshotsOut)
-def list_snapshots(
+async def list_snapshots(
     request: MarketSnapshotsRequest = Depends(parse_market_snapshots_request),
     service: MarketDataApplicationService = Depends(get_market_data_service),
     current_user: User = Depends(get_current_user),
 ) -> MarketSnapshotsOut:
     _ = current_user
     try:
-        snapshots = service.list_snapshots(tickers=request.tickers)
+        snapshots = await service.list_snapshots(tickers=request.tickers)
         return MarketSnapshotsOut(items=[to_market_snapshot_out(snapshot) for snapshot in snapshots])
     except ValueError as exc:
         _raise_market_data_service_error(exc)
 
 
 @router.get("/trading-days", response_model=MarketTradingDaysOut)
-def list_trading_days(
+async def list_trading_days(
     request: MarketTradingDaysRequest = Depends(parse_market_trading_days_request),
     service: MarketDataApplicationService = Depends(get_market_data_service),
     current_user: User = Depends(get_current_user),
 ) -> MarketTradingDaysOut:
     _ = current_user
     try:
-        days = service.list_trading_days(
+        days = await service.list_trading_days(
             end_date=request.end_date,
             count=request.count,
         )

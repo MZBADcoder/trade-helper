@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from app.application.auth.login_throttle import AuthLoginThrottle
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
@@ -10,7 +11,6 @@ from app.core.security import (
     normalize_email,
     verify_password,
 )
-from app.application.auth.login_throttle import AuthLoginThrottle
 from app.domain.auth.constants import (
     ERROR_AUTH_RATE_LIMITED,
     ERROR_EMAIL_ALREADY_REGISTERED,
@@ -20,6 +20,7 @@ from app.domain.auth.constants import (
     ERROR_USER_INACTIVE,
 )
 from app.domain.auth.schemas import AccessToken, User, UserCredentials
+from app.infrastructure.auth.login_throttle import RedisAuthLoginThrottle
 from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 
@@ -28,52 +29,52 @@ class AuthApplicationService:
         self,
         *,
         uow: SqlAlchemyUnitOfWork,
-        login_throttle: AuthLoginThrottle | None = None,
+        login_throttle: AuthLoginThrottle | RedisAuthLoginThrottle | None = None,
     ) -> None:
         self._uow = uow
         self._login_throttle = login_throttle or AuthLoginThrottle()
 
-    def register(self, *, email: str, password: str) -> User:
+    async def register(self, *, email: str, password: str) -> User:
         normalized_email = normalize_email(email)
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_auth_repo(uow)
-            if repo.get_user_by_email_normalized(email_normalized=normalized_email) is not None:
+            if await repo.get_user_by_email_normalized(email_normalized=normalized_email) is not None:
                 raise ValueError(ERROR_EMAIL_ALREADY_REGISTERED)
             password_hash = hash_password(password)
-            user = repo.create_user(
+            user = await repo.create_user(
                 email=email.strip(),
                 email_normalized=normalized_email,
                 password_hash=password_hash,
             )
-            uow.commit()
+            await uow.commit()
             return user
 
-    def login(self, *, email: str, password: str) -> AccessToken:
-        return self.login_with_source(email=email, password=password, source=None)
+    async def login(self, *, email: str, password: str) -> AccessToken:
+        return await self.login_with_source(email=email, password=password, source=None)
 
-    def login_with_source(self, *, email: str, password: str, source: str | None) -> AccessToken:
+    async def login_with_source(self, *, email: str, password: str, source: str | None) -> AccessToken:
         normalized_email = normalize_email(email)
         source_key = _source_throttle_key(source)
         account_key = _account_throttle_key(normalized_email)
-        self._login_throttle.assert_allowed(key=account_key)
-        self._login_throttle.assert_allowed(key=source_key)
+        await self._login_throttle.assert_allowed(key=account_key)
+        await self._login_throttle.assert_allowed(key=source_key)
         try:
-            user = self._authenticate(email=email, password=password)
+            user = await self._authenticate(email=email, password=password)
         except ValueError as exc:
             detail = str(exc)
             if detail in {ERROR_INVALID_EMAIL_OR_PASSWORD, ERROR_USER_INACTIVE}:
-                self._login_throttle.record_failure(key=account_key)
-                self._login_throttle.record_failure(key=source_key)
+                await self._login_throttle.record_failure(key=account_key)
+                await self._login_throttle.record_failure(key=source_key)
                 try:
-                    self._login_throttle.assert_allowed(key=account_key)
-                    self._login_throttle.assert_allowed(key=source_key)
+                    await self._login_throttle.assert_allowed(key=account_key)
+                    await self._login_throttle.assert_allowed(key=source_key)
                 except ValueError:
                     raise ValueError(ERROR_AUTH_RATE_LIMITED) from exc
                 raise ValueError(ERROR_INVALID_EMAIL_OR_PASSWORD) from exc
             raise
 
-        self._login_throttle.record_success(key=account_key)
-        self._login_throttle.record_success(key=source_key)
+        await self._login_throttle.record_success(key=account_key)
+        await self._login_throttle.record_success(key=source_key)
         expires_in = settings.auth_access_token_expire_days * 24 * 60 * 60
         token = create_access_token(
             subject=str(user.id),
@@ -82,14 +83,14 @@ class AuthApplicationService:
         )
         return AccessToken(access_token=token, token_type="bearer", expires_in=expires_in)
 
-    def get_user(self, *, user_id: int) -> User | None:
+    async def get_user(self, *, user_id: int) -> User | None:
         if user_id < 1:
             raise ValueError(ERROR_INVALID_USER_ID)
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_auth_repo(uow)
-            return repo.get_user_by_id(user_id=user_id)
+            return await repo.get_user_by_id(user_id=user_id)
 
-    def get_current_user_from_token(self, *, token: str) -> User:
+    async def get_current_user_from_token(self, *, token: str) -> User:
         payload = decode_access_token(token=token, secret_key=settings.app_secret_key)
         subject = payload.get("sub")
         try:
@@ -97,23 +98,23 @@ class AuthApplicationService:
         except (TypeError, ValueError) as exc:
             raise ValueError(ERROR_INVALID_TOKEN) from exc
 
-        user = self.get_user(user_id=user_id)
+        user = await self.get_user(user_id=user_id)
         if user is None or not user.is_active:
             raise ValueError(ERROR_INVALID_TOKEN)
         return user
 
-    def _authenticate(self, *, email: str, password: str) -> User:
+    async def _authenticate(self, *, email: str, password: str) -> User:
         normalized_email = normalize_email(email)
-        with self._uow as uow:
+        async with self._uow as uow:
             repo = _require_auth_repo(uow)
-            user = repo.get_user_by_email_normalized(email_normalized=normalized_email)
+            user = await repo.get_user_by_email_normalized(email_normalized=normalized_email)
             if user is None or not verify_password(password, user.password_hash):
                 raise ValueError(ERROR_INVALID_EMAIL_OR_PASSWORD)
             if not user.is_active:
                 raise ValueError(ERROR_USER_INACTIVE)
 
-            updated_user = repo.update_last_login(user_id=user.id)
-            uow.commit()
+            updated_user = await repo.update_last_login(user_id=user.id)
+            await uow.commit()
             if updated_user is not None:
                 return updated_user
             return _credentials_to_user(user)

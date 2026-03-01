@@ -20,21 +20,21 @@ router = APIRouter()
 
 
 @router.get("/watchlist", response_model=list[WatchlistItemOut])
-def list_demo_watchlist(
+async def list_demo_watchlist(
     service: DemoMarketDataApplicationService = Depends(get_demo_market_data_service),
 ) -> list[WatchlistItemOut]:
-    items = service.list_watchlist()
+    items = await service.list_watchlist()
     return [to_watchlist_item_out(item) for item in items]
 
 
 @router.get("/market-data/bars", response_model=list[MarketBarOut])
-def list_demo_bars(
+async def list_demo_bars(
     response: Response,
     request: MarketBarsRequest = Depends(parse_market_bars_request),
     service: DemoMarketDataApplicationService = Depends(get_demo_market_data_service),
 ) -> list[MarketBarOut]:
     try:
-        result = service.list_bars_with_meta(
+        result = await service.list_bars_with_meta(
             ticker=request.symbol,
             timespan=request.timespan,
             multiplier=request.multiplier,
@@ -50,12 +50,12 @@ def list_demo_bars(
 
 
 @router.get("/market-data/snapshots", response_model=MarketSnapshotsOut)
-def list_demo_snapshots(
+async def list_demo_snapshots(
     request: MarketSnapshotsRequest = Depends(parse_market_snapshots_request),
     service: DemoMarketDataApplicationService = Depends(get_demo_market_data_service),
 ) -> MarketSnapshotsOut:
     try:
-        snapshots = service.list_snapshots(tickers=request.tickers)
+        snapshots = await service.list_snapshots(tickers=request.tickers)
     except ValueError as exc:
         _raise_demo_market_data_error(exc)
     return MarketSnapshotsOut(items=[to_market_snapshot_out(snapshot) for snapshot in snapshots])

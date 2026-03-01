@@ -30,3 +30,5 @@
 - [ ] MARKET-SNAPSHOTS 优化：将交易日盘中 watchlist 的 `change/change_pct` 改为“WS 最新价 + DB `prev_close` 实时重算”全链路口径（当前已完成非交易日 DB 基准回退）。
 - [ ] DEMO-REPLAY 后续项：评估将 `/demo` 的 mock 回放窗口从“纯后端生成”升级为“真实历史数据抽样 + mock 增量拼接”，以便逐步接近生产链路。
 - [ ] SESSION-SECURITY 后续项：开发阶段暂保留前端 `localStorage` token；后续单独评估并实施更安全的 session 承载方案（如 HttpOnly Cookie / memory-only token + refresh 流程）。
+- [ ] HTTP-ASYNC 收尾：持续跟踪 Massive 官方 Python SDK 是否提供原生 async REST client；若可用，替换当前 `to_thread` 过渡适配层。
+- [ ] HTTP-ASYNC 收尾：补充真实 Postgres / Redis 的异步集成测试，覆盖 AsyncSession 事务回滚、Redis 限流与应用关闭时资源释放。

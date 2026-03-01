@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.market_data.schemas import MarketBar
 from app.infrastructure.db.mappers import (
@@ -26,10 +26,10 @@ _MARKET_TZ = ZoneInfo("America/New_York")
 
 
 class SqlAlchemyMarketDataRepository:
-    def __init__(self, *, session: Session) -> None:
+    def __init__(self, *, session: AsyncSession) -> None:
         self._session = session
 
-    def list_day_bars(
+    async def list_day_bars(
         self,
         *,
         ticker: str,
@@ -50,10 +50,10 @@ class SqlAlchemyMarketDataRepository:
         )
         if limit:
             stmt = stmt.limit(limit)
-        rows = self._session.execute(stmt).scalars().all()
+        rows = (await self._session.execute(stmt)).scalars().all()
         return [market_bar_day_to_domain(row) for row in rows]
 
-    def list_recent_day_bars(
+    async def list_recent_day_bars(
         self,
         *,
         ticker: str,
@@ -68,12 +68,12 @@ class SqlAlchemyMarketDataRepository:
             .order_by(MarketBarDayModel.trade_date.desc())
             .limit(limit)
         )
-        rows = self._session.execute(stmt).scalars().all()
+        rows = (await self._session.execute(stmt)).scalars().all()
         bars = [market_bar_day_to_domain(row) for row in rows]
         bars.sort(key=lambda bar: bar.start_at)
         return bars
 
-    def list_minute_bars(
+    async def list_minute_bars(
         self,
         *,
         ticker: str,
@@ -94,10 +94,10 @@ class SqlAlchemyMarketDataRepository:
         )
         if limit:
             stmt = stmt.limit(limit)
-        rows = self._session.execute(stmt).scalars().all()
+        rows = (await self._session.execute(stmt)).scalars().all()
         return [market_bar_minute_to_domain(row) for row in rows]
 
-    def list_minute_agg_bars(
+    async def list_minute_agg_bars(
         self,
         *,
         ticker: str,
@@ -120,10 +120,10 @@ class SqlAlchemyMarketDataRepository:
         )
         if limit:
             stmt = stmt.limit(limit)
-        rows = self._session.execute(stmt).scalars().all()
+        rows = (await self._session.execute(stmt)).scalars().all()
         return [market_bar_minute_agg_to_domain(row) for row in rows]
 
-    def list_minute_bars_for_bucket(
+    async def list_minute_bars_for_bucket(
         self,
         *,
         ticker: str,
@@ -141,28 +141,28 @@ class SqlAlchemyMarketDataRepository:
             )
             .order_by(MarketBarMinuteModel.start_at.asc())
         )
-        rows = self._session.execute(stmt).scalars().all()
+        rows = (await self._session.execute(stmt)).scalars().all()
         return [market_bar_minute_to_domain(row) for row in rows]
 
-    def get_day_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
+    async def get_day_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
         stmt = select(func.min(MarketBarDayModel.start_at), func.max(MarketBarDayModel.start_at)).where(
             MarketBarDayModel.ticker == ticker
         )
-        result = self._session.execute(stmt).one()
+        result = (await self._session.execute(stmt)).one()
         if result[0] is None or result[1] is None:
             return None
         return result[0], result[1]
 
-    def get_minute_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
+    async def get_minute_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
         stmt = select(func.min(MarketBarMinuteModel.start_at), func.max(MarketBarMinuteModel.start_at)).where(
             MarketBarMinuteModel.ticker == ticker
         )
-        result = self._session.execute(stmt).one()
+        result = (await self._session.execute(stmt)).one()
         if result[0] is None or result[1] is None:
             return None
         return result[0], result[1]
 
-    def get_minute_agg_range_coverage(
+    async def get_minute_agg_range_coverage(
         self,
         *,
         ticker: str,
@@ -178,12 +178,12 @@ class SqlAlchemyMarketDataRepository:
                 MarketBarMinuteAggModel.is_final.is_(True),
             )
         )
-        result = self._session.execute(stmt).one()
+        result = (await self._session.execute(stmt)).one()
         if result[0] is None or result[1] is None:
             return None
         return result[0], result[1]
 
-    def list_minute_tickers(
+    async def list_minute_tickers(
         self,
         *,
         start_at: datetime,
@@ -200,10 +200,10 @@ class SqlAlchemyMarketDataRepository:
             .distinct()
             .order_by(MarketBarMinuteModel.ticker.asc())
         )
-        rows = self._session.execute(stmt).all()
+        rows = (await self._session.execute(stmt)).all()
         return [row[0] for row in rows if row and row[0]]
 
-    def list_recent_minute_trade_dates(self, *, limit: int) -> list[date]:
+    async def list_recent_minute_trade_dates(self, *, limit: int) -> list[date]:
         if limit < 1:
             return []
         stmt = (
@@ -212,10 +212,10 @@ class SqlAlchemyMarketDataRepository:
             .order_by(MarketBarMinuteModel.trade_date.desc())
             .limit(limit)
         )
-        rows = self._session.execute(stmt).all()
+        rows = (await self._session.execute(stmt)).all()
         return [row[0] for row in rows if row and row[0] is not None]
 
-    def list_recent_minute_agg_trade_dates(self, *, limit: int) -> list[date]:
+    async def list_recent_minute_agg_trade_dates(self, *, limit: int) -> list[date]:
         if limit < 1:
             return []
         stmt = (
@@ -224,10 +224,10 @@ class SqlAlchemyMarketDataRepository:
             .order_by(MarketBarMinuteAggModel.trade_date.desc())
             .limit(limit)
         )
-        rows = self._session.execute(stmt).all()
+        rows = (await self._session.execute(stmt)).all()
         return [row[0] for row in rows if row and row[0] is not None]
 
-    def upsert_day_bars(self, bars: list[MarketBar]) -> None:
+    async def upsert_day_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
             return
 
@@ -257,9 +257,9 @@ class SqlAlchemyMarketDataRepository:
                     ],
                 ),
             )
-            self._session.execute(stmt)
+            await self._session.execute(stmt)
 
-    def upsert_minute_bars(self, bars: list[MarketBar]) -> None:
+    async def upsert_minute_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
             return
 
@@ -289,9 +289,9 @@ class SqlAlchemyMarketDataRepository:
                     ],
                 ),
             )
-            self._session.execute(stmt)
+            await self._session.execute(stmt)
 
-    def upsert_minute_agg_bars(self, bars: list[MarketBar]) -> None:
+    async def upsert_minute_agg_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
             return
 
@@ -323,20 +323,19 @@ class SqlAlchemyMarketDataRepository:
                     ],
                 ),
             )
-            self._session.execute(stmt)
+            await self._session.execute(stmt)
 
-    def delete_minute_bars_before_trade_date(self, *, keep_from_trade_date: date) -> int:
+    async def delete_minute_bars_before_trade_date(self, *, keep_from_trade_date: date) -> int:
         stmt = delete(MarketBarMinuteModel).where(MarketBarMinuteModel.trade_date < keep_from_trade_date)
-        result = self._session.execute(stmt)
+        result = await self._session.execute(stmt)
         return int(result.rowcount or 0)
 
-    def delete_minute_agg_before_trade_date(self, *, keep_from_trade_date: date) -> int:
+    async def delete_minute_agg_before_trade_date(self, *, keep_from_trade_date: date) -> int:
         stmt = delete(MarketBarMinuteAggModel).where(MarketBarMinuteAggModel.trade_date < keep_from_trade_date)
-        result = self._session.execute(stmt)
+        result = await self._session.execute(stmt)
         return int(result.rowcount or 0)
 
-    # Compatibility wrappers for existing callers/tests.
-    def list_bars(
+    async def list_bars(
         self,
         *,
         ticker: str,
@@ -347,11 +346,11 @@ class SqlAlchemyMarketDataRepository:
         limit: int | None = None,
     ) -> list[MarketBar]:
         if timespan == "day" and multiplier == 1:
-            return self.list_day_bars(ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
+            return await self.list_day_bars(ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
         if timespan == "minute" and multiplier == 1:
-            return self.list_minute_bars(ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
+            return await self.list_minute_bars(ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
         if timespan == "minute" and multiplier > 1:
-            return self.list_minute_agg_bars(
+            return await self.list_minute_agg_bars(
                 ticker=ticker,
                 multiplier=multiplier,
                 start_at=start_at,
@@ -360,7 +359,7 @@ class SqlAlchemyMarketDataRepository:
             )
         return []
 
-    def get_range_coverage(
+    async def get_range_coverage(
         self,
         *,
         ticker: str,
@@ -368,26 +367,26 @@ class SqlAlchemyMarketDataRepository:
         multiplier: int,
     ) -> tuple[datetime, datetime] | None:
         if timespan == "day" and multiplier == 1:
-            return self.get_day_range_coverage(ticker=ticker)
+            return await self.get_day_range_coverage(ticker=ticker)
         if timespan == "minute" and multiplier == 1:
-            return self.get_minute_range_coverage(ticker=ticker)
+            return await self.get_minute_range_coverage(ticker=ticker)
         if timespan == "minute" and multiplier > 1:
-            return self.get_minute_agg_range_coverage(ticker=ticker, multiplier=multiplier)
+            return await self.get_minute_agg_range_coverage(ticker=ticker, multiplier=multiplier)
         return None
 
-    def upsert_bars(self, bars: list[MarketBar]) -> None:
+    async def upsert_bars(self, bars: list[MarketBar]) -> None:
         if not bars:
             return
 
         first = bars[0]
         if first.timespan == "day" and first.multiplier == 1:
-            self.upsert_day_bars(bars)
+            await self.upsert_day_bars(bars)
             return
         if first.timespan == "minute" and first.multiplier == 1:
-            self.upsert_minute_bars(bars)
+            await self.upsert_minute_bars(bars)
             return
         if first.timespan == "minute" and first.multiplier > 1:
-            self.upsert_minute_agg_bars(bars)
+            await self.upsert_minute_agg_bars(bars)
             return
 
 

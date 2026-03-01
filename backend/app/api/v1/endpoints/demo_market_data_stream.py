@@ -30,7 +30,7 @@ async def demo_market_data_stream(
     service: DemoMarketDataApplicationService = Depends(get_demo_market_data_service),
 ) -> None:
     await websocket.accept()
-    replay_window = service.replay_window()
+    replay_window = await service.replay_window()
     session = MarketStreamSession(
         max_symbols=1,
         ping_interval_seconds=settings.market_stream_ping_interval_seconds,
@@ -55,7 +55,7 @@ async def demo_market_data_stream(
     try:
         await _send_ws_json(
             websocket,
-            payload=_system_status(message=service.replay_status_message(window=replay_window)),
+            payload=_system_status(message=await service.replay_status_message(window=replay_window)),
             send_lock=send_lock,
         )
 
@@ -95,7 +95,7 @@ async def demo_market_data_stream(
                 symbols = session.symbols
                 channels = session.channels
                 if DEMO_TICKER in symbols and channels:
-                    events = service.stream_events(
+                    events = await service.stream_events(
                         step=replay_step,
                         channels=channels,
                         window=replay_window,

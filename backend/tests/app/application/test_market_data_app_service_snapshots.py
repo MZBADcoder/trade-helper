@@ -15,16 +15,16 @@ class FakeUoW:
     auth_repo = None
     watchlist_repo = None
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):
         return None
 
-    def commit(self) -> None:
+    async def commit(self) -> None:
         return None
 
-    def rollback(self) -> None:
+    async def rollback(self) -> None:
         return None
 
 
@@ -32,7 +32,7 @@ class FakeSnapshotRepo:
     def __init__(self, bars_by_ticker: dict[str, list[MarketBar]]) -> None:
         self._bars_by_ticker = bars_by_ticker
 
-    def list_recent_day_bars(self, *, ticker: str, limit: int = 2) -> list[MarketBar]:
+    async def list_recent_day_bars(self, *, ticker: str, limit: int = 2) -> list[MarketBar]:
         items = list(self._bars_by_ticker.get(ticker, []))
         items.sort(key=lambda bar: bar.start_at)
         if limit < 1:
@@ -64,9 +64,12 @@ class FakeMassiveSnapshotClient:
             }
         ]
 
-    def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
+    async def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
         self.calls.append(tickers)
         return list(self.payload)
+
+    async def list_market_holidays(self) -> list[dict]:
+        return []
 
 
 class SnapshotDay:
@@ -101,18 +104,18 @@ class SnapshotObject:
         self.last_trade = last_trade
 
 
-def test_list_snapshots_raises_upstream_unavailable_when_client_missing() -> None:
+async def test_list_snapshots_raises_upstream_unavailable_when_client_missing() -> None:
     service = MarketDataApplicationService(uow=FakeUoW(), massive_client=None)
 
     with pytest.raises(ValueError, match="MARKET_DATA_UPSTREAM_UNAVAILABLE"):
-        service.list_snapshots(tickers=["AAPL"])
+        await service.list_snapshots(tickers=["AAPL"])
 
 
-def test_list_snapshots_returns_mapped_domain_snapshots() -> None:
+async def test_list_snapshots_returns_mapped_domain_snapshots() -> None:
     client = FakeMassiveSnapshotClient()
     service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
-    result = service.list_snapshots(tickers=["aapl", "AAPL", "nvda"])
+    result = await service.list_snapshots(tickers=["aapl", "AAPL", "nvda"])
 
     assert client.calls == [["AAPL", "NVDA"]]
     assert len(result) == 1
@@ -126,46 +129,49 @@ def test_list_snapshots_returns_mapped_domain_snapshots() -> None:
     assert item.source == "REST"
 
 
-def test_list_snapshots_rejects_invalid_ticker() -> None:
+async def test_list_snapshots_rejects_invalid_ticker() -> None:
     client = FakeMassiveSnapshotClient()
     service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
     with pytest.raises(ValueError, match="MARKET_DATA_INVALID_TICKERS"):
-        service.list_snapshots(tickers=["AA-PL"])
+        await service.list_snapshots(tickers=["AA-PL"])
 
 
-def test_list_snapshots_rejects_too_many_unique_tickers() -> None:
+async def test_list_snapshots_rejects_too_many_unique_tickers() -> None:
     client = FakeMassiveSnapshotClient()
     service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
     tickers = [f"T{idx:02d}" for idx in range(51)]
 
     with pytest.raises(ValueError, match="MARKET_DATA_INVALID_TICKERS"):
-        service.list_snapshots(tickers=tickers)
+        await service.list_snapshots(tickers=tickers)
 
 
-def test_list_snapshots_maps_rate_limit_error() -> None:
+async def test_list_snapshots_maps_rate_limit_error() -> None:
     class RateLimitedClient:
-        def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
+        async def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
             _ = tickers
             raise RuntimeError("429 rate limit exceeded")
+
+        async def list_market_holidays(self) -> list[dict]:
+            return []
 
     service = MarketDataApplicationService(uow=FakeUoW(), massive_client=RateLimitedClient())
 
     with pytest.raises(ValueError, match="MARKET_DATA_RATE_LIMITED"):
-        service.list_snapshots(tickers=["AAPL"])
+        await service.list_snapshots(tickers=["AAPL"])
 
 
-def test_list_snapshots_returns_empty_list_for_empty_payload() -> None:
+async def test_list_snapshots_returns_empty_list_for_empty_payload() -> None:
     client = FakeMassiveSnapshotClient()
     client.payload = []
     service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
-    result = service.list_snapshots(tickers=["AAPL"])
+    result = await service.list_snapshots(tickers=["AAPL"])
 
     assert result == []
 
 
-def test_list_snapshots_maps_massive_ticker_snapshot_shape() -> None:
+async def test_list_snapshots_maps_massive_ticker_snapshot_shape() -> None:
     client = FakeMassiveSnapshotClient()
     client.payload = [
         SnapshotObject(
@@ -179,7 +185,7 @@ def test_list_snapshots_maps_massive_ticker_snapshot_shape() -> None:
     ]
     service = MarketDataApplicationService(uow=FakeUoW(), massive_client=client)
 
-    result = service.list_snapshots(tickers=["AAPL"])
+    result = await service.list_snapshots(tickers=["AAPL"])
 
     assert len(result) == 1
     item = result[0]
@@ -194,7 +200,7 @@ def test_list_snapshots_maps_massive_ticker_snapshot_shape() -> None:
     assert item.updated_at == datetime(2024, 2, 10, 14, 31, 22, tzinfo=timezone.utc)
 
 
-def test_list_snapshots_uses_db_baseline_for_non_trading_day() -> None:
+async def test_list_snapshots_uses_db_baseline_for_non_trading_day() -> None:
     prev_day = MarketBar(
         ticker="AAPL",
         timespan="day",
@@ -220,8 +226,11 @@ def test_list_snapshots_uses_db_baseline_for_non_trading_day() -> None:
     repo = FakeSnapshotRepo({"AAPL": [prev_day, latest_day]})
 
     class ShouldNotCallMassiveClient:
-        def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
+        async def list_snapshots(self, *, tickers: list[str]) -> list[dict]:
             raise AssertionError(f"Massive should not be called on non-trading day: {tickers}")
+
+        async def list_market_holidays(self) -> list[dict]:
+            return []
 
     service = MarketDataApplicationService(
         uow=FakeUoWWithRepo(repo),
@@ -232,7 +241,7 @@ def test_list_snapshots_uses_db_baseline_for_non_trading_day() -> None:
         ),
     )
 
-    result = service.list_snapshots(tickers=["AAPL"])
+    result = await service.list_snapshots(tickers=["AAPL"])
 
     assert len(result) == 1
     snapshot = result[0]

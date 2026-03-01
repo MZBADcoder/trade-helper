@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import logging
 import threading
+import weakref
 from zoneinfo import ZoneInfo
 
 import exchange_calendars as xcals
@@ -40,7 +42,35 @@ class TradingCalendar:
         self._today_provider = today_provider or date.today
         self._holiday_overrides: dict[date, _HolidayOverride] = {}
         self._holiday_cache_expire_at: datetime | None = None
-        self._holiday_cache_lock = threading.Lock()
+        self._cache_state_lock = threading.Lock()
+        self._refresh_tasks: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop,
+            asyncio.Task[dict[date, _HolidayOverride]],
+        ] = weakref.WeakKeyDictionary()
+
+    async def ensure_holiday_cache(self) -> None:
+        if self._massive_client is None:
+            return
+
+        now = datetime.now(tz=MARKET_TIMEZONE)
+        loop = asyncio.get_running_loop()
+        with self._cache_state_lock:
+            if self._holiday_cache_expire_at is not None and now < self._holiday_cache_expire_at:
+                return
+            refresh_task = self._refresh_tasks.get(loop)
+            if refresh_task is None or refresh_task.done():
+                refresh_task = loop.create_task(self._fetch_holiday_overrides())
+                self._refresh_tasks[loop] = refresh_task
+
+        overrides = await refresh_task
+
+        refreshed_now = datetime.now(tz=MARKET_TIMEZONE)
+        with self._cache_state_lock:
+            if self._refresh_tasks.get(loop) is refresh_task:
+                self._refresh_tasks.pop(loop, None)
+            if self._holiday_cache_expire_at is None or refreshed_now >= self._holiday_cache_expire_at:
+                self._holiday_overrides = overrides
+                self._holiday_cache_expire_at = refreshed_now + _HOLIDAY_CACHE_TTL
 
     def is_trading_day(self, *, target_date: date) -> bool:
         return self.session_minutes(target_date=target_date) > 0
@@ -147,21 +177,14 @@ class TradingCalendar:
             return 390
 
     def _holiday_override(self, *, target_date: date) -> _HolidayOverride | None:
-        if self._massive_client is None:
-            return None
-
-        now = datetime.now(tz=MARKET_TIMEZONE)
-        if self._holiday_cache_expire_at is None or now >= self._holiday_cache_expire_at:
-            with self._holiday_cache_lock:
-                refreshed_now = datetime.now(tz=MARKET_TIMEZONE)
-                if self._holiday_cache_expire_at is None or refreshed_now >= self._holiday_cache_expire_at:
-                    self._holiday_overrides = self._fetch_holiday_overrides()
-                    self._holiday_cache_expire_at = refreshed_now + _HOLIDAY_CACHE_TTL
         return self._holiday_overrides.get(target_date)
 
-    def _fetch_holiday_overrides(self) -> dict[date, _HolidayOverride]:
+    async def _fetch_holiday_overrides(self) -> dict[date, _HolidayOverride]:
+        if self._massive_client is None:
+            return {}
+
         try:
-            raw_holidays = self._massive_client.list_market_holidays()
+            raw_holidays = await self._massive_client.list_market_holidays()
         except Exception:
             logger.exception("Failed to fetch market holiday overrides from Massive")
             return {}
@@ -225,21 +248,7 @@ def _parse_date(raw: str) -> date | None:
 def _parse_time(raw: str) -> time | None:
     if not raw:
         return None
-
-    normalized = raw.replace("Z", "+00:00")
     try:
-        parsed = datetime.fromisoformat(normalized)
+        return time.fromisoformat(raw[:8])
     except ValueError:
-        parsed = None
-
-    if parsed is not None:
-        if parsed.tzinfo is not None:
-            return parsed.astimezone(MARKET_TIMEZONE).time().replace(tzinfo=None)
-        return parsed.time()
-
-    for fmt in ("%H:%M", "%H:%M:%S"):
-        try:
-            return datetime.strptime(raw, fmt).time()
-        except ValueError:
-            continue
-    return None
+        return None

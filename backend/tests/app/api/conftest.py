@@ -124,7 +124,7 @@ class FakeMarketDataService:
         self.bars_partial_range = False
         self.bars_error: Exception | None = None
 
-    def list_snapshots(self, *, tickers: list[str]) -> list[FakeSnapshot]:
+    async def list_snapshots(self, *, tickers: list[str]) -> list[FakeSnapshot]:
         self.list_snapshots_calls.append(tickers)
         now = datetime(2026, 2, 10, 14, 31, 22, tzinfo=timezone.utc)
         return [
@@ -143,7 +143,7 @@ class FakeMarketDataService:
             )
         ]
 
-    def list_bars(
+    async def list_bars(
         self,
         *,
         ticker: str,
@@ -182,7 +182,7 @@ class FakeMarketDataService:
             )
         ]
 
-    def list_bars_with_meta(
+    async def list_bars_with_meta(
         self,
         *,
         ticker: str,
@@ -195,7 +195,7 @@ class FakeMarketDataService:
     ) -> FakeBarsResult:
         if self.bars_error is not None:
             raise self.bars_error
-        bars = self.list_bars(
+        bars = await self.list_bars(
             ticker=ticker,
             timespan=timespan,
             multiplier=multiplier,
@@ -210,7 +210,7 @@ class FakeMarketDataService:
             partial_range=self.bars_partial_range,
         )
 
-    def list_trading_days(
+    async def list_trading_days(
         self,
         *,
         end_date: date | None,
@@ -222,7 +222,7 @@ class FakeMarketDataService:
 
 
 class FakeOptionsService:
-    def list_expirations(
+    async def list_expirations(
         self,
         *,
         underlying: str,
@@ -243,7 +243,7 @@ class FakeOptionsService:
             updated_at=datetime(2026, 2, 10, 14, 32, 10, tzinfo=timezone.utc),
         )
 
-    def list_chain(
+    async def list_chain(
         self,
         *,
         underlying: str,
@@ -276,7 +276,7 @@ class FakeOptionsService:
             next_cursor="eyJvZmZzZXQiOjIwMH0=",
         )
 
-    def get_contract(self, *, option_ticker: str, include_greeks: bool = True) -> FakeOptionContract:
+    async def get_contract(self, *, option_ticker: str, include_greeks: bool = True) -> FakeOptionContract:
         greeks = (
             FakeOptionGreeks(delta=0.45, gamma=0.03, theta=-0.08, vega=0.11, iv=0.312)
             if include_greeks

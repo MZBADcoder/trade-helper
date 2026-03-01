@@ -13,12 +13,12 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=RegisterAcceptedOut, status_code=status.HTTP_202_ACCEPTED)
-def register(
+async def register(
     payload: RegisterRequest,
     service: AuthApplicationService = Depends(get_auth_service),
 ) -> RegisterAcceptedOut:
     try:
-        service.register(email=payload.email, password=payload.password)
+        await service.register(email=payload.email, password=payload.password)
         return RegisterAcceptedOut()
     except ValueError as exc:
         detail = str(exc)
@@ -29,13 +29,13 @@ def register(
 
 
 @router.post("/login", response_model=AccessTokenOut)
-def login(
+async def login(
     request: Request,
     payload: LoginRequest,
     service: AuthApplicationService = Depends(get_auth_service),
 ) -> AccessTokenOut:
     try:
-        token = service.login_with_source(
+        token = await service.login_with_source(
             email=payload.email,
             password=payload.password,
             source=request.client.host if request.client is not None else None,
@@ -49,5 +49,5 @@ def login(
 
 
 @router.get("/me", response_model=UserOut)
-def me(current_user: User = Depends(get_current_user)) -> UserOut:
+async def me(current_user: User = Depends(get_current_user)) -> UserOut:
     return to_user_out(current_user)

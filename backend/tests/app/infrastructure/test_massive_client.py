@@ -10,7 +10,7 @@ def _build_client_with_stub(stub_client: object) -> MassiveClient:
     return client
 
 
-def test_list_options_chain_uses_sdk_strike_filter_kwargs() -> None:
+async def test_list_options_chain_uses_sdk_strike_filter_kwargs() -> None:
     calls: list[dict] = []
 
     class StubSdkClient:
@@ -40,7 +40,7 @@ def test_list_options_chain_uses_sdk_strike_filter_kwargs() -> None:
 
     client = _build_client_with_stub(StubSdkClient())
 
-    result = client.list_options_chain(
+    result = await client.list_options_chain(
         underlying="AAPL",
         expiration="2026-02-21",
         strike_from=200,
@@ -64,7 +64,7 @@ def test_list_options_chain_uses_sdk_strike_filter_kwargs() -> None:
     ]
 
 
-def test_list_options_chain_supports_cursor_via_params_signature() -> None:
+async def test_list_options_chain_supports_cursor_via_params_signature() -> None:
     calls: list[dict] = []
 
     class StubSdkClient:
@@ -94,7 +94,7 @@ def test_list_options_chain_supports_cursor_via_params_signature() -> None:
 
     client = _build_client_with_stub(StubSdkClient())
 
-    result = client.list_options_chain(
+    result = await client.list_options_chain(
         underlying="AAPL",
         expiration="2026-02-21",
         strike_from=180,
@@ -118,7 +118,7 @@ def test_list_options_chain_supports_cursor_via_params_signature() -> None:
     ]
 
 
-def test_get_options_contract_uses_massive_sdk_signature() -> None:
+async def test_get_options_contract_uses_massive_sdk_signature() -> None:
     calls: list[str] = []
 
     class StubSdkClient:
@@ -128,7 +128,7 @@ def test_get_options_contract_uses_massive_sdk_signature() -> None:
 
     client = _build_client_with_stub(StubSdkClient())
 
-    result = client.get_options_contract(
+    result = await client.get_options_contract(
         option_ticker="O:AAPL260221C00210000",
         include_greeks=True,
     )
@@ -137,7 +137,7 @@ def test_get_options_contract_uses_massive_sdk_signature() -> None:
     assert result["results"]["underlying"] == "AAPL"
 
 
-def test_get_options_contract_falls_back_to_snapshot_signature() -> None:
+async def test_get_options_contract_falls_back_to_snapshot_signature() -> None:
     calls: list[tuple[str, str]] = []
 
     class StubSdkClient:
@@ -147,7 +147,7 @@ def test_get_options_contract_falls_back_to_snapshot_signature() -> None:
 
     client = _build_client_with_stub(StubSdkClient())
 
-    result = client.get_options_contract(
+    result = await client.get_options_contract(
         option_ticker="O:MSFT260221P00300000",
         include_greeks=False,
     )
@@ -156,7 +156,7 @@ def test_get_options_contract_falls_back_to_snapshot_signature() -> None:
     assert result["results"]["underlying"] == "MSFT"
 
 
-def test_list_market_holidays_uses_sdk_method() -> None:
+async def test_list_market_holidays_uses_sdk_method() -> None:
     class StubSdkClient:
         def get_market_holidays(self):
             return [
@@ -170,18 +170,18 @@ def test_list_market_holidays_uses_sdk_method() -> None:
 
     client = _build_client_with_stub(StubSdkClient())
 
-    result = client.list_market_holidays()
+    result = await client.list_market_holidays()
 
     assert result == [{"date": "2026-07-03", "status": "closed", "open": "", "close": ""}]
 
 
-def test_get_market_status_uses_sdk_method() -> None:
+async def test_get_market_status_uses_sdk_method() -> None:
     class StubSdkClient:
         def get_market_status(self):
             return {"market": "open"}
 
     client = _build_client_with_stub(StubSdkClient())
 
-    result = client.get_market_status()
+    result = await client.get_market_status()
 
     assert result == {"market": "open"}

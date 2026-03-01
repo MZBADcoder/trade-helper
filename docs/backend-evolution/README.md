@@ -44,6 +44,9 @@
 - `BE-0007` 对 PRD-0001 `/demo` 路由的后端 mock 回放入口拆分
   - `docs/backend-evolution/BE-0007-prd-0001-demo-mock-replay-entry.md`
   - 备注：固定 `AMD` + 最近已完成交易日 `10:00-10:30 ET` 回放窗口；免登录，不接 Massive
+- `BE-0008` 对 PRD-0001 的 FastAPI HTTP 异步化迁移说明
+  - `docs/backend-evolution/BE-0008-prd-0001-fastapi-http-async-migration.md`
+  - 备注：在线 HTTP、AsyncSession、Redis 登录限流、Celery async bridge 与 `/demo` HTTP 已统一到异步主链路
 
 ## 模板
 

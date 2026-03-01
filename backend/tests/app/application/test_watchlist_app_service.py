@@ -10,17 +10,17 @@ class FakeWatchlistRepository:
     def __init__(self) -> None:
         self.items: dict[str, WatchlistItem] = {}
 
-    def list_items(self, *, user_id: int) -> list[WatchlistItem]:
+    async def list_items(self, *, user_id: int) -> list[WatchlistItem]:
         _ = user_id
         return list(self.items.values())
 
-    def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
+    async def add_item(self, *, user_id: int, ticker: str) -> WatchlistItem:
         _ = user_id
         item = WatchlistItem(ticker=ticker, created_at=None)
         self.items[ticker] = item
         return item
 
-    def remove_item(self, *, user_id: int, ticker: str) -> None:
+    async def remove_item(self, *, user_id: int, ticker: str) -> None:
         _ = user_id
         self.items.pop(ticker, None)
 
@@ -33,18 +33,18 @@ class FakeUoW:
         self.commits = 0
         self.rollbacks = 0
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):
         if exc_type:
-            self.rollback()
+            await self.rollback()
         return None
 
-    def commit(self) -> None:
+    async def commit(self) -> None:
         self.commits += 1
 
-    def rollback(self) -> None:
+    async def rollback(self) -> None:
         self.rollbacks += 1
 
 
@@ -52,11 +52,11 @@ class FakeMarketDataService:
     def __init__(self) -> None:
         self.prefetched: list[str] = []
 
-    def prefetch_default(self, *, ticker: str) -> None:
+    async def prefetch_default(self, *, ticker: str) -> None:
         self.prefetched.append(ticker)
 
 
-def test_add_item_triggers_market_data_prefetch() -> None:
+async def test_add_item_triggers_market_data_prefetch() -> None:
     repo = FakeWatchlistRepository()
     market_data = FakeMarketDataService()
     service = WatchlistApplicationService(
@@ -64,27 +64,27 @@ def test_add_item_triggers_market_data_prefetch() -> None:
         market_data_service=market_data,
     )
 
-    item = service.add_item(user_id=1, ticker="aapl")
+    item = await service.add_item(user_id=1, ticker="aapl")
 
     assert item.ticker == "AAPL"
     assert market_data.prefetched == ["AAPL"]
 
 
-def test_add_item_rejects_invalid_ticker_format() -> None:
+async def test_add_item_rejects_invalid_ticker_format() -> None:
     repo = FakeWatchlistRepository()
     service = WatchlistApplicationService(
         uow=FakeUoW(watchlist_repo=repo),
     )
 
     with pytest.raises(ValueError, match="Ticker format is invalid"):
-        service.add_item(user_id=1, ticker="AAPL;DROP")
+        await service.add_item(user_id=1, ticker="AAPL;DROP")
 
 
-def test_remove_item_rejects_invalid_ticker_format() -> None:
+async def test_remove_item_rejects_invalid_ticker_format() -> None:
     repo = FakeWatchlistRepository()
     service = WatchlistApplicationService(
         uow=FakeUoW(watchlist_repo=repo),
     )
 
     with pytest.raises(ValueError, match="Ticker format is invalid"):
-        service.remove_item(user_id=1, ticker="AAPL;DROP")
+        await service.remove_item(user_id=1, ticker="AAPL;DROP")

@@ -9,7 +9,6 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_auth_service, get_market_stream_hub, get_watchlist_service
 from app.application.auth.service import AuthApplicationService
@@ -62,10 +61,7 @@ async def market_data_stream(
         return
 
     try:
-        current_user = await run_in_threadpool(
-            auth_service.get_current_user_from_token,
-            token=token,
-        )
+        current_user = await auth_service.get_current_user_from_token(token=token)
     except ValueError:
         logger.warning(
             "market stream ws closing: client=%s code=4401 reason=invalid token token_source=%s",
@@ -129,8 +125,7 @@ async def market_data_stream(
                     continue
 
                 allowed_symbols = (
-                    await run_in_threadpool(
-                        _allowed_watchlist_symbols,
+                    await _allowed_watchlist_symbols(
                         service=watchlist_service,
                         user_id=current_user.id,
                     )
@@ -322,8 +317,8 @@ def _normalize_origin(value: str) -> str | None:
     return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
 
 
-def _allowed_watchlist_symbols(*, service: WatchlistApplicationService, user_id: int) -> set[str]:
-    items = service.list_items(user_id=user_id)
+async def _allowed_watchlist_symbols(*, service: WatchlistApplicationService, user_id: int) -> set[str]:
+    items = await service.list_items(user_id=user_id)
     return {item.ticker.strip().upper() for item in items if item.ticker.strip()}
 
 

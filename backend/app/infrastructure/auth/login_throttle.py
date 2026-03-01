@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from contextlib import asynccontextmanager
 import threading
 from typing import Callable
 import time
 
-import redis
+import redis.asyncio as redis
 
 from app.domain.auth.constants import ERROR_AUTH_RATE_LIMITED
 
@@ -35,7 +37,7 @@ class _FallbackLoginThrottle:
         self._states: dict[str, _ThrottleState] = {}
         self._lock = threading.Lock()
 
-    def assert_allowed(self, *, key: str) -> None:
+    async def assert_allowed(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
@@ -46,7 +48,7 @@ class _FallbackLoginThrottle:
             if state is not None and state.blocked_until > now:
                 raise ValueError(ERROR_AUTH_RATE_LIMITED)
 
-    def record_failure(self, *, key: str) -> None:
+    async def record_failure(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
@@ -70,7 +72,7 @@ class _FallbackLoginThrottle:
                 blocked_until=blocked_until,
             )
 
-    def record_success(self, *, key: str) -> None:
+    async def record_success(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if normalized:
             with self._lock:
@@ -124,15 +126,16 @@ class RedisAuthLoginThrottle:
             time_provider=self._time_provider,
         )
 
-    def assert_allowed(self, *, key: str) -> None:
+    async def assert_allowed(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
 
         try:
-            blocked_until = self._get_client().get(self._blocked_key(normalized))
+            async with self._client_scope() as client:
+                blocked_until = await client.get(self._blocked_key(normalized))
         except redis.RedisError:
-            self._fallback.assert_allowed(key=normalized)
+            await self._fallback.assert_allowed(key=normalized)
             return
         if blocked_until is None:
             return
@@ -143,41 +146,53 @@ class RedisAuthLoginThrottle:
         if blocked_at > self._time_provider():
             raise ValueError(ERROR_AUTH_RATE_LIMITED)
 
-    def record_failure(self, *, key: str) -> None:
+    async def record_failure(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
 
         try:
-            client = self._get_client()
-            failures_key = self._failures_key(normalized)
-            blocked_key = self._blocked_key(normalized)
-            failures = int(client.incr(failures_key))
-            if int(client.ttl(failures_key)) < 0:
-                client.expire(failures_key, self._window_seconds)
+            async with self._client_scope() as client:
+                failures_key = self._failures_key(normalized)
+                blocked_key = self._blocked_key(normalized)
+                failures = int(await client.incr(failures_key))
+                if int(await client.ttl(failures_key)) < 0:
+                    await client.expire(failures_key, self._window_seconds)
 
-            if failures >= self._max_failures:
-                blocked_until = self._time_provider() + self._block_seconds
-                client.set(blocked_key, str(blocked_until), ex=self._block_seconds)
+                if failures >= self._max_failures:
+                    blocked_until = self._time_provider() + self._block_seconds
+                    await client.set(blocked_key, str(blocked_until), ex=self._block_seconds)
         except redis.RedisError:
-            self._fallback.record_failure(key=normalized)
+            await self._fallback.record_failure(key=normalized)
 
-    def record_success(self, *, key: str) -> None:
+    async def record_success(self, *, key: str) -> None:
         normalized = key.strip().lower()
         if not normalized:
             return
         try:
-            self._get_client().delete(
-                self._failures_key(normalized),
-                self._blocked_key(normalized),
-            )
+            async with self._client_scope() as client:
+                await client.delete(
+                    self._failures_key(normalized),
+                    self._blocked_key(normalized),
+                )
         except redis.RedisError:
-            self._fallback.record_success(key=normalized)
+            await self._fallback.record_success(key=normalized)
 
-    def _get_client(self) -> redis.Redis:
-        if self._client is None:
-            self._client = redis.Redis.from_url(self._redis_url, decode_responses=True)
-        return self._client
+    async def close(self) -> None:
+        if self._client is not None:
+            return
+
+    @asynccontextmanager
+    async def _client_scope(self) -> AsyncIterator[redis.Redis]:
+        if self._client is not None:
+            yield self._client
+            return
+
+        client = redis.Redis.from_url(self._redis_url, decode_responses=True)
+        try:
+            yield client
+        finally:
+            await client.aclose()
 
     def _failures_key(self, normalized: str) -> str:
         return f"{self._key_prefix}:failures:{normalized}"

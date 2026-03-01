@@ -89,10 +89,11 @@ class DemoMarketDataApplicationService:
         self._window_lock = threading.Lock()
         self._cached_window: DemoReplayWindow | None = None
 
-    def list_watchlist(self) -> list[WatchlistItem]:
+    async def list_watchlist(self) -> list[WatchlistItem]:
         return [WatchlistItem(ticker=DEMO_TICKER)]
 
-    def replay_window(self) -> DemoReplayWindow:
+    async def replay_window(self) -> DemoReplayWindow:
+        await self._trading_calendar.ensure_holiday_cache()
         trade_date = self._recent_completed_trade_date()
         cached = self._cached_window
         if cached is not None and cached.trade_date == trade_date:
@@ -106,15 +107,15 @@ class DemoMarketDataApplicationService:
             self._cached_window = rebuilt
             return rebuilt
 
-    def replay_status_message(self, *, window: DemoReplayWindow | None = None) -> str:
-        resolved = window or self.replay_window()
+    async def replay_status_message(self, *, window: DemoReplayWindow | None = None) -> str:
+        resolved = window or await self.replay_window()
         return (
             f"demo replay {resolved.trade_date.isoformat()} "
             f"{_DEMO_WINDOW_START.strftime('%H:%M')}-"
             f"{(datetime.combine(date.min, _DEMO_WINDOW_START) + timedelta(minutes=_DEMO_WINDOW_MINUTES)).time().strftime('%H:%M')} ET"
         )
 
-    def list_bars_with_meta(
+    async def list_bars_with_meta(
         self,
         *,
         ticker: str,
@@ -136,7 +137,7 @@ class DemoMarketDataApplicationService:
         if limit is not None and limit < 1:
             raise ValueError("limit must be >= 1")
 
-        resolved_window = window or self.replay_window()
+        resolved_window = window or await self.replay_window()
         bars = list(resolved_window.bars)
 
         if start_date is not None:
@@ -152,10 +153,10 @@ class DemoMarketDataApplicationService:
             partial_range=False,
         )
 
-    def list_snapshots(self, *, tickers: list[str], step: int = 0) -> list[MarketSnapshot]:
-        return self.list_snapshots_with_window(tickers=tickers, step=step, window=None)
+    async def list_snapshots(self, *, tickers: list[str], step: int = 0) -> list[MarketSnapshot]:
+        return await self.list_snapshots_with_window(tickers=tickers, step=step, window=None)
 
-    def list_snapshots_with_window(
+    async def list_snapshots_with_window(
         self,
         *,
         tickers: list[str],
@@ -170,14 +171,14 @@ class DemoMarketDataApplicationService:
             blocked = ",".join(sorted(set(invalid)))
             raise ValueError(f"demo only supports AMD ticker: {blocked}")
 
-        resolved_window = window or self.replay_window()
-        snapshot = self.snapshot_for_step(step=step, window=resolved_window)
+        resolved_window = window or await self.replay_window()
+        snapshot = await self.snapshot_for_step(step=step, window=resolved_window)
         return [snapshot]
 
     def replay_size(self) -> int:
         return _DEMO_WINDOW_MINUTES
 
-    def stream_events(
+    async def stream_events(
         self,
         *,
         step: int,
@@ -188,10 +189,10 @@ class DemoMarketDataApplicationService:
         if not normalized_channels:
             return []
 
-        resolved_window = window or self.replay_window()
+        resolved_window = window or await self.replay_window()
         frame = self._bar_for_step(window=resolved_window, step=step)
         frame_index = step % resolved_window.size
-        snapshot = self.snapshot_for_step(step=step, window=resolved_window)
+        snapshot = await self.snapshot_for_step(step=step, window=resolved_window)
         event_at = frame.start_at
         seed = _stable_seed(f"{resolved_window.trade_date.isoformat()}:{DEMO_TICKER}:{frame_index}")
         rng = random.Random(seed)
@@ -246,13 +247,13 @@ class DemoMarketDataApplicationService:
 
         return events
 
-    def snapshot_for_step(
+    async def snapshot_for_step(
         self,
         *,
         step: int,
         window: DemoReplayWindow | None = None,
     ) -> MarketSnapshot:
-        resolved = window or self.replay_window()
+        resolved = window or await self.replay_window()
         frame_index = step % resolved.size
         frame = resolved.bars[frame_index]
         prefix = resolved.bars[: frame_index + 1]

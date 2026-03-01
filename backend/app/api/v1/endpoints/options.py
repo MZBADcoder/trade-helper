@@ -17,7 +17,7 @@ _UNDERLYING_PATTERN = r"^[A-Z.]{1,15}$"
 
 
 @router.get("/expirations", response_model=OptionExpirationsOut)
-def list_expirations(
+async def list_expirations(
     underlying: str,
     limit: int = 12,
     include_expired: bool = False,
@@ -34,7 +34,7 @@ def list_expirations(
         )
 
     try:
-        result = service.list_expirations(
+        result = await service.list_expirations(
             underlying=normalized,
             limit=limit,
             include_expired=include_expired,
@@ -45,7 +45,7 @@ def list_expirations(
 
 
 @router.get("/chain", response_model=OptionChainOut)
-def list_chain(
+async def list_chain(
     underlying: str,
     expiration: str,
     strike_from: float | None = None,
@@ -80,7 +80,7 @@ def list_chain(
         )
 
     try:
-        result = service.list_chain(
+        result = await service.list_chain(
             underlying=normalized,
             expiration=expiration,
             strike_from=strike_from,
@@ -95,7 +95,7 @@ def list_chain(
 
 
 @router.get("/contracts/{option_ticker}", response_model=OptionContractOut)
-def get_contract(
+async def get_contract(
     option_ticker: str,
     include_greeks: bool = Query(True),
     service: OptionsApplicationService = Depends(get_options_service),
@@ -111,7 +111,7 @@ def get_contract(
         )
 
     try:
-        result = service.get_contract(
+        result = await service.get_contract(
             option_ticker=normalized_ticker,
             include_greeks=include_greeks,
         )
