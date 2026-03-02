@@ -221,6 +221,32 @@ def test_realtime_publisher_publishes_market_events_and_status() -> None:
     asyncio.run(scenario())
 
 
+def test_realtime_publisher_entitlement_error_degrades_without_unavailable_error() -> None:
+    async def scenario() -> None:
+        upstream = FakeUpstreamClient()
+        publisher = FakeEventPublisher()
+        registry = FakeTopicRegistry()
+        service = StockMarketRealtimePublisher(
+            upstream_client=upstream,
+            event_publisher=publisher,
+            topic_registry=registry,
+            reconcile_interval_seconds=1,
+        )
+
+        await service._handle_upstream_status("error", "You don't have access real-time data")
+
+        status_items = [item for item in publisher.published if item.get("type") == "system.status"]
+        error_items = [item for item in publisher.published if item.get("type") == "system.error"]
+
+        assert len(status_items) == 1
+        assert status_items[0]["data"]["latency"] == "delayed"
+        assert status_items[0]["data"]["connection_state"] == "degraded"
+        assert status_items[0]["data"].get("message") is None
+        assert error_items == []
+
+    asyncio.run(scenario())
+
+
 def test_to_iso_datetime_handles_microseconds_timestamp() -> None:
     microseconds_value = 1_739_969_400_123_456
     expected = datetime.fromtimestamp(microseconds_value / 1_000_000, tz=timezone.utc)

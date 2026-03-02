@@ -173,6 +173,23 @@ class StockMarketRealtimePublisher:
         )
 
     async def _handle_upstream_status(self, state: str, message: str | None) -> None:
+        if state == "error" and _is_realtime_entitlement_error(message):
+            await self._event_publisher.publish(
+                build_system_status(
+                    latency="delayed",
+                    connection_state="degraded",
+                    message=None,
+                )
+            )
+            logger.warning(
+                (
+                    "MASSIVE_WS_ENTITLEMENT_MISSING: upstream denied websocket market-data entitlement "
+                    "(message=%s). Realtime stream will stay in delayed mode and rely on REST polling."
+                ),
+                message,
+            )
+            return
+
         latency = "real-time" if self._realtime_enabled and state == "connected" else "delayed"
         status_message = message
         if not self._realtime_enabled and state == "connected" and not status_message:
@@ -228,3 +245,14 @@ class StockMarketRealtimePublisher:
             self._events_published_total,
             self._events_dropped_total,
         )
+
+
+def _is_realtime_entitlement_error(message: str | None) -> bool:
+    normalized = (message or "").strip().lower()
+    if not normalized:
+        return False
+    if "not authorized" in normalized:
+        return True
+    if "real-time data" in normalized and ("don't have access" in normalized or "do not have access" in normalized):
+        return True
+    return False
