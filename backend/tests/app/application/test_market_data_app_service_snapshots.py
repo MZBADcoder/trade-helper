@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+import app.application.market_data.service as market_data_service_module
 from app.application.market_data.service import MarketDataApplicationService
 from app.application.market_data.trading_calendar import TradingCalendar
 from app.domain.market_data.schemas import MarketBar
@@ -87,6 +88,20 @@ class FakeMassiveSnapshotClient:
         return []
 
 
+class FakeTradingDayCalendar:
+    def __init__(self, *, trading_day: bool) -> None:
+        self._trading_day = trading_day
+        self.checked_dates: list[date] = []
+        self.ensure_called = 0
+
+    async def ensure_holiday_cache(self) -> None:
+        self.ensure_called += 1
+
+    def is_trading_day(self, *, target_date: date) -> bool:
+        self.checked_dates.append(target_date)
+        return self._trading_day
+
+
 class SnapshotDay:
     def __init__(self, *, open: float, high: float, low: float, volume: float) -> None:
         self.open = open
@@ -145,6 +160,32 @@ def test_is_stream_session_open_applies_delay_before_calendar_check() -> None:
     assert is_open is True
     assert calendar.ensure_called == 1
     assert calendar.checked_points == [datetime(2026, 2, 24, 14, 40, tzinfo=timezone.utc)]
+
+
+def test_list_snapshots_uses_market_trade_date_for_trading_day_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FrozenUtcDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            if tz is None:
+                return cls(2026, 2, 24, 0, 30, 0)
+            return cls(2026, 2, 24, 0, 30, 0, tzinfo=tz)
+
+    monkeypatch.setattr(market_data_service_module, "datetime", FrozenUtcDateTime)
+    calendar = FakeTradingDayCalendar(trading_day=True)
+    client = FakeMassiveSnapshotClient()
+    service = MarketDataApplicationService(
+        uow=FakeUoW(),
+        massive_client=client,
+        trading_calendar=calendar,  # type: ignore[arg-type]
+    )
+
+    result = asyncio.run(service.list_snapshots(tickers=["AAPL"]))
+
+    assert len(result) == 1
+    assert calendar.ensure_called == 1
+    assert calendar.checked_dates == [date(2026, 2, 23)]
 
 
 async def test_list_snapshots_returns_mapped_domain_snapshots() -> None:

@@ -4,6 +4,7 @@ import asyncio
 from datetime import date, datetime, timezone
 import threading
 
+import app.application.market_data.trading_calendar as trading_calendar_module
 from app.application.market_data.trading_calendar import TradingCalendar
 
 
@@ -63,6 +64,24 @@ def test_is_in_trading_session_for_regular_hours() -> None:
     assert calendar.is_in_trading_session(point=datetime(2026, 2, 24, 15, 0, tzinfo=timezone.utc)) is True
     assert calendar.is_in_trading_session(point=datetime(2026, 2, 24, 14, 20, tzinfo=timezone.utc)) is False
     assert calendar.is_in_trading_session(point=datetime(2026, 2, 24, 21, 5, tzinfo=timezone.utc)) is False
+
+
+def test_default_today_provider_uses_market_timezone(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    observed: dict[str, object] = {}
+
+    class FrozenMarketDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            observed["tz"] = tz
+            if tz is None:
+                return cls(2026, 2, 24, 0, 30, 0)
+            return cls(2026, 2, 24, 0, 30, 0, tzinfo=tz)
+
+    monkeypatch.setattr(trading_calendar_module, "datetime", FrozenMarketDateTime)
+
+    calendar = TradingCalendar(massive_client=None)
+    assert calendar._today_provider() == date(2026, 2, 24)
+    assert observed["tz"] == trading_calendar_module.MARKET_TIMEZONE
 
 
 async def test_massive_holiday_override_marks_future_day_closed() -> None:

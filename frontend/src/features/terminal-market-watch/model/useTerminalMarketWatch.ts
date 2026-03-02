@@ -74,6 +74,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const detailsRef = React.useRef<Record<string, DetailSnapshot>>({});
   const detailLruRef = React.useRef<string[]>([]);
   const loadMoreInFlightRef = React.useRef<Set<string>>(new Set());
+  const detailRequestVersionRef = React.useRef<Record<string, number>>({});
 
   const [snapshotMap, setSnapshotMap] = React.useState<Record<string, MarketSnapshot>>({});
   const snapshotTsRef = React.useRef<Record<string, number>>({});
@@ -193,6 +194,11 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         }
       });
       detailLruRef.current = detailLruRef.current.filter((key) => next[key] !== undefined);
+      Object.keys(detailRequestVersionRef.current).forEach((key) => {
+        if (isDetailKeyForSymbol(key, symbol)) {
+          delete detailRequestVersionRef.current[key];
+        }
+      });
       return next;
     });
   }, []);
@@ -342,6 +348,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       const cacheKey = buildDetailCacheKey(symbol, activeTimeframe);
       const query = marketQueryForTimeframe(activeTimeframe);
       const existing = detailsRef.current[cacheKey];
+      const requestVersion = (detailRequestVersionRef.current[cacheKey] ?? 0) + 1;
+      detailRequestVersionRef.current[cacheKey] = requestVersion;
+      const isStaleRequest = () => detailRequestVersionRef.current[cacheKey] !== requestVersion;
 
       if (!force && existing?.bars.length) {
         touchDetailKey(cacheKey);
@@ -384,6 +393,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           endDate,
           windowDays
         });
+        if (isStaleRequest()) {
+          return;
+        }
         lookbackStartDate = tradingRange.lookbackStartDate;
         range = tradingRange;
         previousTradingDate = tradingRange.previousTradingDate;
@@ -399,6 +411,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           to: range.to,
           limit: query.limit
         });
+        if (isStaleRequest()) {
+          return;
+        }
 
         const incomingBars = sortBars(payload.items);
 
@@ -442,6 +457,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           };
         });
       } catch (error: any) {
+        if (isStaleRequest()) {
+          return;
+        }
         upsertDetail(cacheKey, (previous) => ({
           bars: previous?.bars ?? [],
           indicators: previous?.indicators ?? null,
@@ -777,7 +795,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       }
 
       if (closedByCleanup || manualCloseRef.current || !tokenRef.current) {
-        setStreamStatus("disconnected");
         return;
       }
 

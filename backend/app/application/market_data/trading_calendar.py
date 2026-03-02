@@ -39,7 +39,7 @@ class TradingCalendar:
     ) -> None:
         self._massive_client = massive_client
         self._exchange_calendar = xcals.get_calendar(exchange)
-        self._today_provider = today_provider or date.today
+        self._today_provider = today_provider or _market_today
         self._holiday_overrides: dict[date, _HolidayOverride] = {}
         self._holiday_cache_expire_at: datetime | None = None
         self._cache_state_lock = threading.Lock()
@@ -274,6 +274,10 @@ def _parse_time(raw: str) -> time | None:
         return time.fromisoformat(raw[:8])
     except ValueError:
         return None
+
+
+def _market_today() -> date:
+    return datetime.now(tz=MARKET_TIMEZONE).date()
 
 
 def _to_market_datetime(value: datetime) -> datetime:

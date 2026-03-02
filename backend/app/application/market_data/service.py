@@ -158,7 +158,7 @@ class MarketDataApplicationService:
         baselines = await self._list_daily_snapshot_baselines(tickers=normalized_tickers)
         snapshots_by_symbol = {symbol: baseline.snapshot for symbol, baseline in baselines.items()}
 
-        today = date.today()
+        today = market_trade_date(point=datetime.now(tz=timezone.utc))
         today_is_trading_day = self._trading_calendar.is_trading_day(target_date=today)
         missing_symbols = [symbol for symbol in normalized_tickers if symbol not in snapshots_by_symbol]
         should_fetch_massive = self._massive_client is not None and (
