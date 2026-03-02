@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import Time, and_, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,18 +80,17 @@ class SqlAlchemyMarketDataRepository:
         start_at: datetime,
         end_at: datetime,
         limit: int | None = None,
+        session: str | None = None,
     ) -> list[MarketBar]:
-        stmt = (
-            select(MarketBarMinuteModel)
-            .where(
-                and_(
-                    MarketBarMinuteModel.ticker == ticker,
-                    MarketBarMinuteModel.start_at >= start_at,
-                    MarketBarMinuteModel.start_at <= end_at,
-                )
-            )
-            .order_by(MarketBarMinuteModel.start_at.asc())
-        )
+        conditions = [
+            MarketBarMinuteModel.ticker == ticker,
+            MarketBarMinuteModel.start_at >= start_at,
+            MarketBarMinuteModel.start_at <= end_at,
+        ]
+        if session:
+            conditions.extend(_minute_session_conditions(session=session))
+
+        stmt = select(MarketBarMinuteModel).where(and_(*conditions)).order_by(MarketBarMinuteModel.start_at.asc())
         if limit:
             stmt = stmt.limit(limit)
         rows = (await self._session.execute(stmt)).scalars().all()
@@ -344,11 +343,18 @@ class SqlAlchemyMarketDataRepository:
         start_at: datetime,
         end_at: datetime,
         limit: int | None = None,
+        session: str | None = None,
     ) -> list[MarketBar]:
         if timespan == "day" and multiplier == 1:
             return await self.list_day_bars(ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
         if timespan == "minute" and multiplier == 1:
-            return await self.list_minute_bars(ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
+            return await self.list_minute_bars(
+                ticker=ticker,
+                start_at=start_at,
+                end_at=end_at,
+                limit=limit,
+                session=session,
+            )
         if timespan == "minute" and multiplier > 1:
             return await self.list_minute_agg_bars(
                 ticker=ticker,
@@ -415,3 +421,14 @@ def _to_market_trade_date(start_at: datetime) -> date:
     if start_at.tzinfo is None:
         start_at = start_at.replace(tzinfo=timezone.utc)
     return start_at.astimezone(_MARKET_TZ).date()
+
+
+def _minute_session_conditions(*, session: str) -> list[object]:
+    local_time = cast(func.timezone(str(_MARKET_TZ), MarketBarMinuteModel.start_at), Time)
+    if session == "regular":
+        return [local_time >= time(9, 30), local_time < time(16, 0)]
+    if session == "pre":
+        return [local_time >= time(4, 0), local_time < time(9, 30)]
+    if session == "night":
+        return [or_(local_time >= time(16, 0), local_time < time(4, 0))]
+    return []

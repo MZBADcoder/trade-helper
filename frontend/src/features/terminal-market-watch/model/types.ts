@@ -2,6 +2,7 @@ import { type IndicatorBundle, type MarketBar, type MarketSnapshot } from "@/ent
 import { type WatchlistItem } from "@/entities/watchlist";
 
 export type TimeframeKey = "1m" | "5m" | "15m" | "60m" | "day" | "week" | "month";
+export type SessionKey = "regular" | "pre" | "night";
 export type StreamStatus =
   | "idle"
   | "connecting"
@@ -38,6 +39,11 @@ export type TimeframeOption = {
   label: string;
 };
 
+export type SessionOption = {
+  key: SessionKey;
+  label: string;
+};
+
 export type TerminalMarketWatchViewModel = {
   userEmail: string | null;
   isAuthenticated: boolean;
@@ -55,6 +61,8 @@ export type TerminalMarketWatchViewModel = {
   snapshotMap: Record<string, MarketSnapshot>;
   timeframe: TimeframeKey;
   setTimeframe: (value: TimeframeKey) => void;
+  session: SessionKey;
+  setSession: (value: SessionKey) => void;
   activeDetail: DetailSnapshot | null;
   activeSnapshot: MarketSnapshot | null;
   latestBar: MarketBar | undefined;

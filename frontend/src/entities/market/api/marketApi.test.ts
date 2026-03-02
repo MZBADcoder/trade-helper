@@ -37,6 +37,7 @@ describe("listMarketBarsWithMeta", () => {
       ticker: "AAPL",
       timespan: "minute",
       multiplier: 5,
+      session: "night",
       from: "2026-02-04",
       to: "2026-02-18",
       limit: 2500
@@ -48,6 +49,7 @@ describe("listMarketBarsWithMeta", () => {
     expect(String(url)).toContain("ticker=AAPL");
     expect(String(url)).toContain("timespan=minute");
     expect(String(url)).toContain("multiplier=5");
+    expect(String(url)).toContain("session=night");
     expect(String(url)).toContain("from=2026-02-04");
     expect(String(url)).toContain("to=2026-02-18");
     expect(String(url)).toContain("limit=2500");

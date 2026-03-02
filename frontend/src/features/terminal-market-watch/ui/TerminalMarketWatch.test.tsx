@@ -21,6 +21,11 @@ vi.mock("../model/marketWatchUtils", () => ({
     { key: "day", label: "Day" },
     { key: "week", label: "Week" },
     { key: "month", label: "Month" }
+  ],
+  SESSION_OPTIONS: [
+    { key: "regular", label: "盘中" },
+    { key: "pre", label: "盘前" },
+    { key: "night", label: "夜盘" }
   ]
 }));
 
@@ -45,6 +50,8 @@ function createViewModel(
     snapshotMap: {},
     timeframe: "5m",
     setTimeframe: vi.fn(),
+    session: "regular",
+    setSession: vi.fn(),
     activeDetail: {
       bars: [],
       indicators: null,

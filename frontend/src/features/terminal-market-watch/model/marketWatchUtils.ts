@@ -1,7 +1,7 @@
 import { listTradingDays, type MarketBar, type MarketSnapshot } from "@/entities/market";
 
 import { type StreamMarketMessage, type StreamStatusMessage } from "./streamProtocol";
-import { type TimeframeKey, type TimeframeOption } from "./types";
+import { type SessionKey, type SessionOption, type TimeframeKey, type TimeframeOption } from "./types";
 
 const STREAM_CHANNELS_REALTIME = ["trade", "quote", "aggregate"];
 const DEFAULT_MARKET_DELAY_MINUTES = 15;
@@ -37,6 +37,12 @@ export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" }
+];
+
+export const SESSION_OPTIONS: SessionOption[] = [
+  { key: "regular", label: "盘中" },
+  { key: "pre", label: "盘前" },
+  { key: "night", label: "夜盘" }
 ];
 
 type StreamWsBaseUrlParams = {
@@ -309,8 +315,16 @@ export function isIntradayTimeframe(timeframe: TimeframeKey): boolean {
   return timeframe === "1m" || timeframe === "5m" || timeframe === "15m" || timeframe === "60m";
 }
 
-export function buildDetailCacheKey(symbol: string, timeframe: TimeframeKey): string {
-  return `${symbol}::${timeframe}`;
+export function sessionKeyForTimeframe(timeframe: TimeframeKey, session: SessionKey): SessionKey {
+  return isIntradayTimeframe(timeframe) ? session : "regular";
+}
+
+export function buildDetailCacheKey(symbol: string, timeframe: TimeframeKey, session: SessionKey): string {
+  const resolvedSession = sessionKeyForTimeframe(timeframe, session);
+  if (!isIntradayTimeframe(timeframe)) {
+    return `${symbol}::${timeframe}`;
+  }
+  return `${symbol}::${timeframe}::${resolvedSession}`;
 }
 
 export function isDetailKeyForSymbol(key: string, symbol: string): boolean {

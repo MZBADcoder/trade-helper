@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDetailCacheKey,
   marketQueryForTimeframe,
   mergeBarsByStartAt,
   isMarketStreamWindowOpen,
   resolveMarketRealtimeConfig,
   resolveStreamWsBaseUrl,
+  sessionKeyForTimeframe,
   shouldIgnoreMarketMessage,
   shouldStopDegradedPollingOnStatus,
   streamChannelsForRealtime,
@@ -95,6 +97,19 @@ describe("TIMEFRAME_OPTIONS", () => {
     const keys = TIMEFRAME_OPTIONS.map((item) => item.key);
     expect(keys).toEqual(["1m", "5m", "15m", "60m", "day", "week", "month"]);
     expect(keys).not.toContain("minute");
+  });
+});
+
+describe("buildDetailCacheKey", () => {
+  it("keeps session dimension for intraday timeframes", () => {
+    expect(buildDetailCacheKey("AAPL", "5m", "regular")).not.toBe(buildDetailCacheKey("AAPL", "5m", "night"));
+    expect(sessionKeyForTimeframe("5m", "night")).toBe("night");
+  });
+
+  it("ignores session dimension for non-intraday timeframes", () => {
+    expect(buildDetailCacheKey("AAPL", "day", "regular")).toBe(buildDetailCacheKey("AAPL", "day", "night"));
+    expect(buildDetailCacheKey("AAPL", "week", "pre")).toBe("AAPL::week");
+    expect(sessionKeyForTimeframe("month", "night")).toBe("regular");
   });
 });
 

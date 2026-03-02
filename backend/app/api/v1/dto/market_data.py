@@ -16,6 +16,7 @@ from app.application.market_data.policy import (
 
 _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 _OPTION_TICKER_PATTERN = re.compile(r"^O:[A-Z0-9]{1,32}$")
+_SUPPORTED_SESSIONS = {"regular", "pre", "night"}
 
 
 @dataclass(slots=True)
@@ -23,6 +24,7 @@ class MarketBarsRequest:
     symbol: str
     timespan: str
     multiplier: int
+    session: str
     from_date: date | None
     to_date: date | None
     limit: int | None
@@ -44,6 +46,7 @@ def parse_market_bars_request(
     option_ticker: str | None = None,
     timespan: str = "day",
     multiplier: int = 1,
+    session: str = "regular",
     from_date: date | None = Query(None, alias="from"),
     to_date: date | None = Query(None, alias="to"),
     limit: int | None = Query(None, ge=1, le=5000),
@@ -66,6 +69,13 @@ def parse_market_bars_request(
             code="MARKET_DATA_INVALID_RANGE",
             message="multiplier must be between 1 and 60",
         )
+    normalized_session = session.strip().lower()
+    if normalized_session not in _SUPPORTED_SESSIONS:
+        raise_api_error(
+            status_code=400,
+            code="MARKET_DATA_INVALID_SESSION",
+            message="session must be one of: regular, pre, night",
+        )
     if from_date is not None and to_date is not None and from_date >= to_date:
         raise_api_error(
             status_code=400,
@@ -78,6 +88,7 @@ def parse_market_bars_request(
         symbol=symbol,
         timespan=normalized_timespan,
         multiplier=multiplier,
+        session=normalized_session,
         from_date=from_date,
         to_date=to_date,
         limit=limit,

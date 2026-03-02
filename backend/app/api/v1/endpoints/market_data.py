@@ -60,6 +60,7 @@ async def list_bars(
             ticker=request.symbol,
             timespan=request.timespan,
             multiplier=request.multiplier,
+            session=request.session,
             start_date=request.from_date,
             end_date=request.to_date,
             limit=request.limit,

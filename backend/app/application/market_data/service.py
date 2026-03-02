@@ -32,6 +32,8 @@ from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
 
 _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 _SUPPORTED_MINUTE_AGG_MULTIPLIERS = {5, 15, 60}
+_SUPPORTED_BAR_SESSIONS = {"regular", "pre", "night"}
+_PREMARKET_OPEN_TIME = time(4, 0)
 
 
 @dataclass(slots=True)
@@ -46,6 +48,7 @@ class _BarsQuery:
     ticker: str
     timespan: str
     multiplier: int
+    session: str
     start_date: date
     end_date: date
     start_at: datetime
@@ -77,6 +80,7 @@ class MarketDataApplicationService:
         ticker: str,
         timespan: str,
         multiplier: int = 1,
+        session: str = "regular",
         start_date: date | None = None,
         end_date: date | None = None,
         limit: int | None = None,
@@ -86,6 +90,7 @@ class MarketDataApplicationService:
             ticker=ticker,
             timespan=timespan,
             multiplier=multiplier,
+            session=session,
             start_date=start_date,
             end_date=end_date,
             limit=limit,
@@ -99,6 +104,7 @@ class MarketDataApplicationService:
         ticker: str,
         timespan: str,
         multiplier: int = 1,
+        session: str = "regular",
         start_date: date | None = None,
         end_date: date | None = None,
         limit: int | None = None,
@@ -109,6 +115,7 @@ class MarketDataApplicationService:
             ticker=ticker,
             timespan=timespan,
             multiplier=multiplier,
+            session=session,
             start_date=start_date,
             end_date=end_date,
             limit=limit,
@@ -366,13 +373,15 @@ class MarketDataApplicationService:
             repo = _require_market_data_repo(uow)
             coverage = await repo.get_minute_range_coverage(ticker=query.ticker)
             if _coverage_contains(coverage=coverage, start_at=query.start_at, end_at=query.end_at):
+                bars = await repo.list_minute_bars(
+                    ticker=query.ticker,
+                    start_at=query.start_at,
+                    end_at=query.end_at,
+                    limit=None,
+                    session=query.session,
+                )
                 return MarketBarsQueryResult(
-                    bars=await repo.list_minute_bars(
-                        ticker=query.ticker,
-                        start_at=query.start_at,
-                        end_at=query.end_at,
-                        limit=query.limit,
-                    ),
+                    bars=_apply_limit(bars, limit=query.limit),
                     data_source="DB",
                     partial_range=False,
                 )
@@ -392,15 +401,19 @@ class MarketDataApplicationService:
                 ticker=query.ticker,
                 start_at=query.start_at,
                 end_at=query.end_at,
-                limit=query.limit,
+                limit=None,
+                session=query.session,
             )
             return MarketBarsQueryResult(
-                bars=bars,
+                bars=_apply_limit(bars, limit=query.limit),
                 data_source="REST" if fetched else "DB",
                 partial_range=False,
             )
 
     async def _list_minute_aggregated(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
+        if query.session != "regular":
+            return await self._list_direct_fallback(query=query)
+
         await self._ensure_minute_baseline_coverage(query=query)
         now = datetime.now(tz=timezone.utc)
 
@@ -475,6 +488,13 @@ class MarketDataApplicationService:
             start_date=query.start_date,
             end_date=query.end_date,
         )
+        if query.timespan == "minute":
+            bars = _filter_bars_by_range(
+                bars=bars,
+                start_at=query.start_at,
+                end_at=query.end_at,
+            )
+            bars = _filter_bars_by_session(bars=bars, session=query.session)
         return MarketBarsQueryResult(
             bars=_apply_limit(bars, limit=query.limit),
             data_source="REST",
@@ -633,6 +653,7 @@ def _build_bars_query(
     ticker: str,
     timespan: str,
     multiplier: int,
+    session: str,
     start_date: date | None,
     end_date: date | None,
     limit: int | None,
@@ -656,6 +677,7 @@ def _build_bars_query(
     normalized_timespan = normalize_timespan(timespan)
     if not normalized_timespan:
         raise ValueError("Timespan is required")
+    normalized_session = _normalize_session(session=session)
 
     if multiplier < 1:
         raise ValueError("Multiplier must be >= 1")
@@ -675,6 +697,7 @@ def _build_bars_query(
         start_at, end_at = _minute_query_bounds_utc(
             start_date=start_date,
             end_date=end_date,
+            session=normalized_session,
         )
     else:
         start_at = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
@@ -683,6 +706,7 @@ def _build_bars_query(
         ticker=normalized_ticker,
         timespan=normalized_timespan,
         multiplier=multiplier,
+        session=normalized_session,
         start_date=start_date,
         end_date=end_date,
         start_at=start_at,
@@ -741,11 +765,47 @@ def _apply_limit(bars: list[MarketBar], *, limit: int | None) -> list[MarketBar]
     return bars[:limit]
 
 
-def _minute_query_bounds_utc(*, start_date: date, end_date: date) -> tuple[datetime, datetime]:
+def _minute_query_bounds_utc(*, start_date: date, end_date: date, session: str) -> tuple[datetime, datetime]:
+    if session == "pre":
+        pre_start = datetime.combine(start_date, _PREMARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
+        pre_end = datetime.combine(end_date, MARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE) - timedelta(minutes=1)
+        return pre_start.astimezone(timezone.utc), pre_end.astimezone(timezone.utc)
+    if session == "night":
+        # Include both post-close and early-morning segments for each selected date.
+        night_start = datetime.combine(start_date, time.min, tzinfo=MARKET_TIMEZONE)
+        night_end = datetime.combine(end_date, time.max, tzinfo=MARKET_TIMEZONE)
+        return night_start.astimezone(timezone.utc), night_end.astimezone(timezone.utc)
+
     market_start = datetime.combine(start_date, MARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
     market_close = datetime.combine(end_date, MARKET_CLOSE_TIME, tzinfo=MARKET_TIMEZONE)
     market_last_bar_start = market_close - timedelta(minutes=1)
     return market_start.astimezone(timezone.utc), market_last_bar_start.astimezone(timezone.utc)
+
+
+def _normalize_session(*, session: str) -> str:
+    normalized = session.strip().lower()
+    if normalized not in _SUPPORTED_BAR_SESSIONS:
+        raise ValueError("session must be one of: regular, pre, night")
+    return normalized
+
+
+def _filter_bars_by_session(*, bars: list[MarketBar], session: str) -> list[MarketBar]:
+    return [bar for bar in bars if _is_bar_in_session(bar=bar, session=session)]
+
+
+def _filter_bars_by_range(*, bars: list[MarketBar], start_at: datetime, end_at: datetime) -> list[MarketBar]:
+    return [bar for bar in bars if start_at <= bar.start_at <= end_at]
+
+
+def _is_bar_in_session(*, bar: MarketBar, session: str) -> bool:
+    local_time = bar.start_at.astimezone(MARKET_TIMEZONE).time()
+    if session == "regular":
+        return MARKET_OPEN_TIME <= local_time < MARKET_CLOSE_TIME
+    if session == "pre":
+        return _PREMARKET_OPEN_TIME <= local_time < MARKET_OPEN_TIME
+    if session == "night":
+        return local_time >= MARKET_CLOSE_TIME or local_time < _PREMARKET_OPEN_TIME
+    return False
 
 
 def _resolve_keep_from_trade_date(*, trade_dates: list[date], keep_trade_days: int) -> date | None:

@@ -569,6 +569,31 @@ pre {
   box-shadow: 0 0 0 2px rgba(89, 214, 176, 0.14);
 }
 
+.sessionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sessionBtn {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 6px 10px;
+  background: rgba(12, 20, 35, 0.78);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.sessionBtnActive {
+  border-color: rgba(116, 184, 255, 0.68);
+  background: rgba(116, 184, 255, 0.2);
+  box-shadow: 0 0 0 2px rgba(116, 184, 255, 0.16);
+}
+
 .tabRow {
   display: flex;
   gap: 8px;

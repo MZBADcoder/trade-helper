@@ -15,7 +15,7 @@ import {
   toSignedPercent,
   toVolume
 } from "../lib/presentation";
-import { TIMEFRAME_OPTIONS } from "../model/marketWatchUtils";
+import { SESSION_OPTIONS, TIMEFRAME_OPTIONS } from "../model/marketWatchUtils";
 import { useTerminalMarketWatch } from "../model/useTerminalMarketWatch";
 
 export function TerminalMarketWatch() {
@@ -36,6 +36,8 @@ export function TerminalMarketWatch() {
     snapshotMap,
     timeframe,
     setTimeframe,
+    session,
+    setSession,
     activeDetail,
     activeSnapshot,
     latestBar,
@@ -185,6 +187,18 @@ export function TerminalMarketWatch() {
                 </button>
               ))}
             </div>
+            <div className="sessionRow">
+              {SESSION_OPTIONS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`sessionBtn ${session === item.key ? "sessionBtnActive" : ""}`}
+                  onClick={() => setSession(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
 
             {activeTicker ? (
               <>
@@ -195,6 +209,7 @@ export function TerminalMarketWatch() {
                     Source: {activeSnapshot?.source ?? activeDetail?.source ?? streamSource}
                   </span>
                   <span className="sourceTag">Bars: {activeDetail?.barsDataSource ?? "-"}</span>
+                  <span className="sourceTag">Session: {session}</span>
                   <span className="pill">Market: {activeSnapshot?.market_status ?? "-"}</span>
                 </div>
 

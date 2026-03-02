@@ -7,6 +7,7 @@ type MarketQuery = {
   ticker: string;
   timespan?: string;
   multiplier?: number;
+  session?: "regular" | "pre" | "night";
   from?: string;
   to?: string;
   limit?: number;
@@ -25,6 +26,7 @@ export async function listMarketBars(params: MarketQuery): Promise<MarketBar[]> 
       ticker: params.ticker,
       timespan: params.timespan,
       multiplier: params.multiplier,
+      session: params.session,
       from: params.from,
       to: params.to,
       limit: params.limit
@@ -43,6 +45,7 @@ export async function listMarketBarsWithMeta(params: MarketQuery): Promise<{
       ticker: params.ticker,
       timespan: params.timespan,
       multiplier: params.multiplier,
+      session: params.session,
       from: params.from,
       to: params.to,
       limit: params.limit

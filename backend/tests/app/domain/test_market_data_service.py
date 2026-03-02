@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -8,6 +9,8 @@ from app.application.market_data.errors import MarketDataRangeTooLargeError
 from app.application.market_data import service as market_data_service_module
 from app.application.market_data.service import MarketDataApplicationService
 from app.domain.market_data.schemas import MarketBar
+
+_MARKET_TZ = ZoneInfo("America/New_York")
 
 
 def _bar(
@@ -41,6 +44,10 @@ def _bar(
         source=source,
         is_final=is_final,
     )
+
+
+def _to_epoch_millis(value: datetime) -> int:
+    return int(value.timestamp() * 1000)
 
 
 class FakeMarketDataRepository:
@@ -80,8 +87,16 @@ class FakeMarketDataRepository:
         start_at: datetime,
         end_at: datetime,
         limit: int | None = None,
+        session: str | None = None,
     ) -> list[MarketBar]:
-        return _filter_by_range(self.minute_bars, ticker=ticker, start_at=start_at, end_at=end_at, limit=limit)
+        return _filter_by_range(
+            self.minute_bars,
+            ticker=ticker,
+            start_at=start_at,
+            end_at=end_at,
+            limit=limit,
+            session=session,
+        )
 
     async def list_minute_agg_bars(
         self,
@@ -307,6 +322,54 @@ async def test_list_minute_baseline_fetches_massive_when_missing() -> None:
     assert result[0].ticker == "MSFT"
 
 
+async def test_list_minute_baseline_non_regular_backfills_when_coverage_is_missing() -> None:
+    repo = FakeMarketDataRepository()
+    repo.minute_bars = [
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc)),
+    ]
+    massive = FakeMassiveClient(
+        {
+            ("minute", 1): [
+                {
+                    "t": _to_epoch_millis(datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc)),
+                    "o": 100,
+                    "h": 101,
+                    "l": 99,
+                    "c": 100.5,
+                    "v": 1000,
+                },
+                {
+                    "t": _to_epoch_millis(datetime(2026, 2, 10, 22, 1, tzinfo=timezone.utc)),
+                    "o": 100.5,
+                    "h": 101.2,
+                    "l": 100.1,
+                    "c": 101,
+                    "v": 900,
+                },
+            ]
+        }
+    )
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=massive,
+    )
+
+    bars = await service.list_bars(
+        ticker="AAPL",
+        timespan="minute",
+        multiplier=1,
+        session="night",
+        start_date=date(2026, 2, 10),
+        end_date=date(2026, 2, 10),
+    )
+
+    assert massive.calls == [("minute", 1)]
+    assert [bar.start_at for bar in bars] == [
+        datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc),
+        datetime(2026, 2, 10, 22, 1, tzinfo=timezone.utc),
+    ]
+
+
 async def test_list_minute_aggregated_returns_db_agg_mixed_for_open_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     fixed_now = datetime(2026, 2, 10, 15, 7, tzinfo=timezone.utc)  # 10:07 ET
 
@@ -404,6 +467,48 @@ async def test_list_minute_aggregated_fallbacks_to_rest_when_preagg_empty(monkey
     assert result.data_source == "REST"
     assert len(result.bars) == 1
     assert massive.calls[-1] == ("minute", 5)
+
+
+async def test_list_minute_aggregated_night_fallback_clips_out_of_range_bars() -> None:
+    repo = FakeMarketDataRepository()
+    massive = FakeMassiveClient(
+        {
+            ("minute", 5): [
+                {
+                    "t": _to_epoch_millis(datetime(2026, 2, 9, 6, 30, tzinfo=timezone.utc)),  # 01:30 ET (prev day)
+                    "o": 90,
+                    "h": 91,
+                    "l": 89.5,
+                    "c": 90.2,
+                    "v": 500,
+                },
+                {
+                    "t": _to_epoch_millis(datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc)),  # 17:00 ET
+                    "o": 100,
+                    "h": 102,
+                    "l": 99.5,
+                    "c": 101,
+                    "v": 1200,
+                },
+            ]
+        }
+    )
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=massive,
+    )
+
+    result = await service.list_bars_with_meta(
+        ticker="AAPL",
+        timespan="minute",
+        multiplier=5,
+        session="night",
+        start_date=date(2026, 2, 10),
+        end_date=date(2026, 2, 10),
+    )
+
+    assert result.data_source == "REST"
+    assert [bar.start_at for bar in result.bars] == [datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc)]
 
 
 async def test_precompute_minute_aggregates_only_writes_final_buckets() -> None:
@@ -557,6 +662,68 @@ async def test_list_bars_allows_to_only_minute_range_with_default_start() -> Non
     assert isinstance(bars, list)
 
 
+async def test_list_minute_bars_filters_pre_session() -> None:
+    repo = FakeMarketDataRepository()
+    repo.minute_coverage = (
+        datetime(2026, 2, 10, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 2, 10, 23, 59, 59, tzinfo=timezone.utc),
+    )
+    repo.minute_bars = [
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 13, 15, tzinfo=timezone.utc)),  # 08:15 ET
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc)),  # 10:00 ET
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc)),  # 17:00 ET
+    ]
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=FailMassiveClient(),
+    )
+
+    bars = await service.list_bars(
+        ticker="AAPL",
+        timespan="minute",
+        multiplier=1,
+        session="pre",
+        start_date=date(2026, 2, 10),
+        end_date=date(2026, 2, 10),
+    )
+
+    assert len(bars) == 1
+    assert bars[0].start_at == datetime(2026, 2, 10, 13, 15, tzinfo=timezone.utc)
+
+
+async def test_list_minute_bars_filters_night_session() -> None:
+    repo = FakeMarketDataRepository()
+    repo.minute_coverage = (
+        datetime(2026, 2, 10, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 2, 11, 4, 59, 59, 999999, tzinfo=timezone.utc),
+    )
+    repo.minute_bars = [
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 6, 30, tzinfo=timezone.utc)),  # 01:30 ET
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 13, 15, tzinfo=timezone.utc)),  # 08:15 ET
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc)),  # 10:00 ET
+        _bar(ticker="AAPL", start_at=datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc)),  # 17:00 ET
+    ]
+    service = MarketDataApplicationService(
+        uow=FakeUoW(market_data_repo=repo),
+        massive_client=FailMassiveClient(),
+    )
+
+    bars = await service.list_bars(
+        ticker="AAPL",
+        timespan="minute",
+        multiplier=1,
+        session="night",
+        start_date=date(2026, 2, 10),
+        end_date=date(2026, 2, 10),
+    )
+
+    assert len(bars) == 2
+    assert [bar.start_at for bar in bars] == [
+        datetime(2026, 2, 10, 6, 30, tzinfo=timezone.utc),
+        datetime(2026, 2, 10, 22, 0, tzinfo=timezone.utc),
+    ]
+
+
 async def test_prefetch_default_does_not_apply_request_range_limit() -> None:
     repo = FakeMarketDataRepository()
     repo.day_coverage = (
@@ -613,9 +780,23 @@ def _filter_by_range(
     start_at: datetime,
     end_at: datetime,
     limit: int | None,
+    session: str | None = None,
 ) -> list[MarketBar]:
     items = [bar for bar in bars if bar.ticker == ticker and start_at <= bar.start_at <= end_at]
+    if session is not None:
+        items = [bar for bar in items if _is_session_match(bar=bar, session=session)]
     items.sort(key=lambda bar: bar.start_at)
     if limit and limit > 0:
         return items[:limit]
     return items
+
+
+def _is_session_match(*, bar: MarketBar, session: str) -> bool:
+    local_time = bar.start_at.astimezone(_MARKET_TZ).time()
+    if session == "regular":
+        return time(9, 30) <= local_time < time(16, 0)
+    if session == "pre":
+        return time(4, 0) <= local_time < time(9, 30)
+    if session == "night":
+        return local_time >= time(16, 0) or local_time < time(4, 0)
+    return False

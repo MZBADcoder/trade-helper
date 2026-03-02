@@ -12,6 +12,7 @@ import { addWatchlist, deleteWatchlist, listWatchlist, type WatchlistItem } from
 
 import {
   type DetailSnapshot,
+  type SessionKey,
   type StreamStatus,
   type TimeframeKey,
   type TerminalMarketWatchViewModel
@@ -36,6 +37,7 @@ import {
   resolveFetchRange,
   resolveMarketRealtimeConfig,
   resolveSnapshotLast,
+  sessionKeyForTimeframe,
   resolveTradingChunkFetchRange,
   resolveTradingFetchRange,
   shouldIgnoreMarketMessage,
@@ -70,6 +72,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   const [activeTicker, setActiveTicker] = React.useState<string | null>(null);
   const [timeframe, setTimeframe] = React.useState<TimeframeKey>("day");
+  const [session, setSession] = React.useState<SessionKey>("regular");
   const [detailsByKey, setDetailsByKey] = React.useState<Record<string, DetailSnapshot>>({});
   const detailsRef = React.useRef<Record<string, DetailSnapshot>>({});
   const detailLruRef = React.useRef<string[]>([]);
@@ -88,6 +91,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   const activeTickerRef = React.useRef<string | null>(null);
   const timeframeRef = React.useRef<TimeframeKey>(timeframe);
+  const sessionRef = React.useRef<SessionKey>(session);
   const tokenRef = React.useRef<string | null>(null);
   const desiredSubscriptionsRef = React.useRef<string[]>([]);
 
@@ -114,6 +118,10 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   React.useEffect(() => {
     timeframeRef.current = timeframe;
   }, [timeframe]);
+
+  React.useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   React.useEffect(() => {
     tokenRef.current = token;
@@ -345,7 +353,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
       const symbol = normalizeSymbol(ticker);
       const activeTimeframe = timeframeRef.current;
-      const cacheKey = buildDetailCacheKey(symbol, activeTimeframe);
+      const activeSession = sessionRef.current;
+      const resolvedSession = sessionKeyForTimeframe(activeTimeframe, activeSession);
+      const cacheKey = buildDetailCacheKey(symbol, activeTimeframe, resolvedSession);
       const query = marketQueryForTimeframe(activeTimeframe);
       const existing = detailsRef.current[cacheKey];
       const requestVersion = (detailRequestVersionRef.current[cacheKey] ?? 0) + 1;
@@ -407,6 +417,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           ticker: symbol,
           timespan: query.timespan,
           multiplier: query.multiplier,
+          session: resolvedSession,
           from: range.from,
           to: range.to,
           limit: query.limit
@@ -486,11 +497,13 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
       const symbol = normalizeSymbol(ticker);
       const activeTimeframe = timeframeRef.current;
+      const activeSession = sessionRef.current;
+      const resolvedSession = sessionKeyForTimeframe(activeTimeframe, activeSession);
       if (!isIntradayTimeframe(activeTimeframe)) {
         return;
       }
 
-      const cacheKey = buildDetailCacheKey(symbol, activeTimeframe);
+      const cacheKey = buildDetailCacheKey(symbol, activeTimeframe, resolvedSession);
       const existing = detailsRef.current[cacheKey];
       const query = marketQueryForTimeframe(activeTimeframe);
 
@@ -539,6 +552,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           ticker: symbol,
           timespan: query.timespan,
           multiplier: query.multiplier,
+          session: resolvedSession,
           from: range.from,
           to: range.to,
           limit: query.limit
@@ -922,6 +936,11 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     void refreshSnapshots(watchlist.map((item) => item.ticker));
   }, [refreshSnapshots, token, watchlist]);
 
+  const activeSessionKey = React.useMemo(
+    () => sessionKeyForTimeframe(timeframe, session),
+    [timeframe, session]
+  );
+
   React.useEffect(() => {
     if (!watchlist.length || !token) {
       return;
@@ -940,14 +959,14 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     }
 
     void loadTickerDetail(activeTicker, true);
-  }, [activeTicker, loadTickerDetail, timeframe]);
+  }, [activeTicker, activeSessionKey, loadTickerDetail, timeframe]);
 
   React.useEffect(() => {
     if (!activeTicker) return;
-    touchDetailKey(buildDetailCacheKey(activeTicker, timeframe));
-  }, [activeTicker, timeframe, touchDetailKey]);
+    touchDetailKey(buildDetailCacheKey(activeTicker, timeframe, activeSessionKey));
+  }, [activeTicker, activeSessionKey, timeframe, touchDetailKey]);
 
-  const activeDetailKey = activeTicker ? buildDetailCacheKey(activeTicker, timeframe) : null;
+  const activeDetailKey = activeTicker ? buildDetailCacheKey(activeTicker, timeframe, activeSessionKey) : null;
   const activeDetail = activeDetailKey ? detailsByKey[activeDetailKey] ?? null : null;
   const activeSnapshot = activeTicker ? snapshotMap[activeTicker] : null;
   const latestBar = activeDetail?.bars.at(-1);
@@ -1025,6 +1044,8 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     snapshotMap,
     timeframe,
     setTimeframe,
+    session,
+    setSession,
     activeDetail,
     activeSnapshot,
     latestBar,

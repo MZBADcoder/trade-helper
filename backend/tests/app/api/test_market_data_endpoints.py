@@ -128,6 +128,22 @@ def test_bars_success_sets_contract_headers(api_client, market_data_service) -> 
     assert response.headers["X-Data-Source"] in {"REST", "DB", "DB_AGG", "DB_AGG_MIXED"}
     assert response.headers["X-Partial-Range"] in {"true", "false"}
     assert market_data_service.list_bars_calls[0]["ticker"] == "AAPL"
+    assert market_data_service.list_bars_calls[0]["session"] == "regular"
+
+
+def test_bars_rejects_invalid_session(api_client) -> None:
+    response = api_client.get(
+        "/api/v1/market-data/bars",
+        params={
+            "ticker": "AAPL",
+            "timespan": "minute",
+            "session": "all",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["code"] == "MARKET_DATA_INVALID_SESSION"
 
 
 def test_trading_days_returns_iso_dates(api_client, market_data_service) -> None:
