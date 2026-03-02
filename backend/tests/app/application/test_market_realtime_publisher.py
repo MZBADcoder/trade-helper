@@ -58,6 +58,20 @@ class FakeTopicRegistry:
         self.closed = True
 
 
+class FlakyTopicRegistry(FakeTopicRegistry):
+    def __init__(self) -> None:
+        super().__init__()
+        self.collect_calls = 0
+        self.recovered = asyncio.Event()
+
+    async def collect_topics(self) -> set[str]:
+        self.collect_calls += 1
+        if self.collect_calls == 1:
+            raise RuntimeError("transient registry failure")
+        self.recovered.set()
+        return set()
+
+
 def test_map_massive_event_to_market_message_supports_stock_events() -> None:
     quote_payload = map_massive_event_to_market_message({"ev": "Q", "sym": "AAPL", "t": 1_739_969_400_000})
     trade_payload = map_massive_event_to_market_message(
@@ -135,6 +149,38 @@ def test_realtime_publisher_without_upstream_publishes_unavailable_error() -> No
         assert any(
             item.get("type") == "system.error"
             and item.get("data", {}).get("code") == "STREAM_UPSTREAM_UNAVAILABLE"
+            for item in publisher.published
+        )
+        assert publisher.closed is True
+        assert registry.closed is True
+
+    asyncio.run(scenario())
+
+
+def test_realtime_publisher_run_survives_transient_reconcile_error() -> None:
+    async def scenario() -> None:
+        upstream = FakeUpstreamClient()
+        publisher = FakeEventPublisher()
+        registry = FlakyTopicRegistry()
+        service = StockMarketRealtimePublisher(
+            upstream_client=upstream,
+            event_publisher=publisher,
+            topic_registry=registry,
+            reconcile_interval_seconds=1,
+        )
+        service._reconcile_interval = 0.05
+
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(service.run(stop_event=stop_event))
+        await asyncio.wait_for(registry.recovered.wait(), timeout=1.0)
+        stop_event.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert registry.collect_calls >= 2
+        assert any(
+            item.get("type") == "system.error"
+            and item.get("data", {}).get("code") == "STREAM_UPSTREAM_UNAVAILABLE"
+            and "reconcile failed" in str(item.get("data", {}).get("message", ""))
             for item in publisher.published
         )
         assert publisher.closed is True

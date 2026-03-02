@@ -28,6 +28,7 @@ import {
   dateOffset,
   isDetailKeyForSymbol,
   isIntradayTimeframe,
+  isMarketStreamWindowOpen,
   marketQueryForTimeframe,
   mergeBarsByStartAt,
   normalizeSymbol,
@@ -46,20 +47,21 @@ import {
 import { parseStreamEnvelope, type StreamMarketMessage, type StreamStatusMessage } from "./streamProtocol";
 const SNAPSHOT_POLL_INTERVAL_MS = 4_000;
 const BARS_POLL_INTERVAL_MS = 20_000;
+const MARKET_STATUS_POLL_INTERVAL_MS = 60_000;
+const MARKET_CLOCK_TICK_MS = 30_000;
 const RECONNECT_MAX_DELAY_MS = 10_000;
 
 const DETAIL_CACHE_MAX_ENTRIES = 12;
 const DETAIL_CACHE_MAX_TOTAL_BARS = 36_000;
 
 const MARKET_REALTIME_CONFIG = resolveMarketRealtimeConfig({
-  realtimeEnabled: import.meta.env.VITE_MARKET_REALTIME_ENABLED,
   delayMinutes: import.meta.env.VITE_MARKET_DELAY_MINUTES
 });
 
 export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const { token, user } = useSession();
-  const { realtimeEnabled, delayMinutes } = MARKET_REALTIME_CONFIG;
-  const streamChannels = React.useMemo(() => streamChannelsForRealtime(realtimeEnabled), [realtimeEnabled]);
+  const { delayMinutes } = MARKET_REALTIME_CONFIG;
+  const streamChannels = React.useMemo(() => streamChannelsForRealtime(), []);
 
   const [watchlist, setWatchlist] = React.useState<WatchlistItem[]>([]);
   const [watchlistBusy, setWatchlistBusy] = React.useState(false);
@@ -81,6 +83,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const [dataLatency, setDataLatency] = React.useState<"real-time" | "delayed">("delayed");
   const [lastSyncAt, setLastSyncAt] = React.useState<string | null>(null);
   const [lastError, setLastError] = React.useState<string | null>(null);
+  const [marketClockMs, setMarketClockMs] = React.useState(() => Date.now());
 
   const activeTickerRef = React.useRef<string | null>(null);
   const timeframeRef = React.useRef<TimeframeKey>(timeframe);
@@ -114,6 +117,15 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   React.useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      setMarketClockMs(Date.now());
+    }, MARKET_CLOCK_TICK_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const trimDetailCache = React.useCallback(
     (cache: Record<string, DetailSnapshot>, touchedKey?: string): Record<string, DetailSnapshot> => {
@@ -654,22 +666,13 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   const applySystemStatus = React.useCallback(
     (message: StreamStatusMessage) => {
-      if (realtimeEnabled && message.latency) {
-        setDataLatency(message.latency);
-      }
-      if (!realtimeEnabled) {
-        setDataLatency("delayed");
-      }
+      setDataLatency(message.latency ?? "delayed");
 
-      if (shouldStopDegradedPollingOnStatus(message, realtimeEnabled)) {
+      if (shouldStopDegradedPollingOnStatus(message)) {
         stopDegradedPolling();
         setStreamStatus("connected");
         setStreamSource("WS");
-        setDataLatency(realtimeEnabled ? "real-time" : "delayed");
-        return;
-      }
-
-      if (realtimeEnabled && message.connectionState === "connected" && message.latency !== "delayed") {
+        setDataLatency(message.latency ?? "delayed");
         return;
       }
 
@@ -679,7 +682,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         setLastError(message.message);
       }
     },
-    [realtimeEnabled, setDegradedMode, stopDegradedPolling]
+    [setDegradedMode, stopDegradedPolling]
   );
 
   const handleStreamMessage = React.useCallback(
@@ -703,24 +706,23 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       if (message.type === "system.error") {
         const errorMessage = message.message ?? "stream error";
         setLastError(message.code ? `${message.code}: ${errorMessage}` : errorMessage);
-        if (message.code === "STREAM_UPSTREAM_UNAVAILABLE") {
+      if (message.code === "STREAM_UPSTREAM_UNAVAILABLE") {
           setDegradedMode();
         }
         return;
       }
 
-      if (shouldIgnoreMarketMessage(message, realtimeEnabled)) {
+      if (shouldIgnoreMarketMessage(message)) {
         return;
       }
 
       applyStreamMarketMessage(message);
     },
-    [applyStreamMarketMessage, applySystemStatus, realtimeEnabled, setDegradedMode]
+    [applyStreamMarketMessage, applySystemStatus, setDegradedMode]
   );
 
   const connectStream = React.useCallback(() => {
-    const accessToken = tokenRef.current;
-    if (!accessToken) return;
+    if (!tokenRef.current) return;
 
     const current = wsRef.current;
     if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) {
@@ -731,7 +733,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       previous === "idle" || previous === "disconnected" ? "connecting" : "reconnecting"
     );
 
-    const ws = new WebSocket(buildStreamUrl(), ["bearer", accessToken]);
+    const ws = new WebSocket(buildStreamUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -789,6 +791,11 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         setLastError("WS Origin 校验失败，请检查前端域名与后端配置。");
         return;
       }
+      if (event.code === 4409) {
+        setStreamStatus("disconnected");
+        setLastError("当前为非交易时段（按延迟窗口），WS 已关闭。");
+        return;
+      }
 
       setDegradedMode("reconnecting");
 
@@ -835,6 +842,16 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     return [...set];
   }, [watchlist]);
 
+  const isTradingSessionOpen = React.useMemo(() => {
+    if (!watchlist.length) {
+      return false;
+    }
+    return isMarketStreamWindowOpen({
+      delayMinutes,
+      nowMs: marketClockMs
+    });
+  }, [delayMinutes, marketClockMs, watchlist.length]);
+
   React.useEffect(() => {
     desiredSubscriptionsRef.current = desiredSubscriptions;
     syncSubscriptions();
@@ -854,6 +871,24 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       return;
     }
 
+    if (!watchlist.length) {
+      manualCloseRef.current = true;
+      closeStream();
+      setStreamStatus("idle");
+      setStreamSource("REST");
+      setDataLatency("delayed");
+      return;
+    }
+
+    if (!isTradingSessionOpen) {
+      manualCloseRef.current = true;
+      closeStream();
+      setStreamStatus("disconnected");
+      setStreamSource("REST");
+      setDataLatency("delayed");
+      return;
+    }
+
     manualCloseRef.current = false;
     connectStream();
 
@@ -861,7 +896,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       manualCloseRef.current = true;
       closeStream();
     };
-  }, [closeStream, connectStream, token]);
+  }, [closeStream, connectStream, isTradingSessionOpen, token, watchlist.length]);
 
   React.useEffect(() => {
     if (!watchlist.length || !token) {
@@ -869,6 +904,18 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     }
     void refreshSnapshots(watchlist.map((item) => item.ticker));
   }, [refreshSnapshots, token, watchlist]);
+
+  React.useEffect(() => {
+    if (!watchlist.length || !token) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void refreshSnapshotsRef.current();
+    }, MARKET_STATUS_POLL_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [token, watchlist.length]);
 
   React.useEffect(() => {
     if (!activeTicker) {
@@ -926,6 +973,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           delete next[symbol];
           return next;
         });
+        delete snapshotTsRef.current[symbol];
         await refreshWatchlist();
       } catch (error: any) {
         setWatchlistError(error?.message ?? "Failed to delete ticker.");
@@ -970,7 +1018,6 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     streamStatus,
     streamSource,
     dataLatency,
-    realtimeEnabled,
     delayMinutes,
     lastSyncAt,
     lastError

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.api.deps import get_auth_service, get_current_user
 from app.api.v1.dto.auth import AccessTokenOut, LoginRequest, RegisterAcceptedOut, RegisterRequest, UserOut
 from app.api.v1.dto.mappers import to_access_token_out, to_user_out
 from app.application.auth.service import AuthApplicationService
+from app.core.config import settings
 from app.domain.auth.constants import ERROR_AUTH_RATE_LIMITED, ERROR_EMAIL_ALREADY_REGISTERED
 from app.domain.auth.schemas import User
 
@@ -31,6 +32,7 @@ async def register(
 @router.post("/login", response_model=AccessTokenOut)
 async def login(
     request: Request,
+    response: Response,
     payload: LoginRequest,
     service: AuthApplicationService = Depends(get_auth_service),
 ) -> AccessTokenOut:
@@ -39,6 +41,15 @@ async def login(
             email=payload.email,
             password=payload.password,
             source=request.client.host if request.client is not None else None,
+        )
+        response.set_cookie(
+            key="token",
+            value=token.access_token,
+            max_age=token.expires_in,
+            httponly=True,
+            secure=settings.is_production_env,
+            samesite="lax",
+            path="/",
         )
         return to_access_token_out(token)
     except ValueError as exc:

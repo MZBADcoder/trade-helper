@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime, timezone
 import threading
 
 from app.application.market_data.trading_calendar import TradingCalendar
@@ -54,6 +54,17 @@ def test_count_session_minutes_excludes_non_trading_days() -> None:
     assert total == 390 * 3
 
 
+def test_is_in_trading_session_for_regular_hours() -> None:
+    calendar = TradingCalendar(
+        massive_client=None,
+        today_provider=lambda: date(2026, 2, 24),
+    )
+
+    assert calendar.is_in_trading_session(point=datetime(2026, 2, 24, 15, 0, tzinfo=timezone.utc)) is True
+    assert calendar.is_in_trading_session(point=datetime(2026, 2, 24, 14, 20, tzinfo=timezone.utc)) is False
+    assert calendar.is_in_trading_session(point=datetime(2026, 2, 24, 21, 5, tzinfo=timezone.utc)) is False
+
+
 async def test_massive_holiday_override_marks_future_day_closed() -> None:
     calendar = TradingCalendar(
         massive_client=HolidayStubMassiveClient(
@@ -89,6 +100,26 @@ async def test_massive_holiday_override_can_apply_early_close_minutes() -> None:
 
     await calendar.ensure_holiday_cache()
     assert calendar.session_minutes(target_date=date(2026, 2, 26)) == 210
+
+
+def test_is_in_trading_session_respects_early_close_override() -> None:
+    calendar = TradingCalendar(
+        massive_client=HolidayStubMassiveClient(
+            holidays=[
+                {
+                    "date": "2026-02-26",
+                    "status": "early-close",
+                    "open": "09:30",
+                    "close": "13:00",
+                }
+            ]
+        ),
+        today_provider=lambda: date(2026, 2, 24),
+    )
+
+    asyncio.run(calendar.ensure_holiday_cache())
+    assert calendar.is_in_trading_session(point=datetime(2026, 2, 26, 17, 30, tzinfo=timezone.utc)) is True
+    assert calendar.is_in_trading_session(point=datetime(2026, 2, 26, 18, 30, tzinfo=timezone.utc)) is False
 
 
 async def test_holiday_override_cache_refresh_is_thread_safe() -> None:

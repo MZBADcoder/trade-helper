@@ -203,6 +203,18 @@ class MarketDataApplicationService:
             count=count,
         )
 
+    async def is_stream_session_open(
+        self,
+        *,
+        delay_minutes: int,
+        now: datetime | None = None,
+    ) -> bool:
+        await self._trading_calendar.ensure_holiday_cache()
+        current = now or datetime.now(tz=timezone.utc)
+        effective_delay_minutes = max(0, int(delay_minutes))
+        delayed_point = current - timedelta(minutes=effective_delay_minutes)
+        return self._trading_calendar.is_in_trading_session(point=delayed_point)
+
     async def precompute_minute_aggregates(
         self,
         *,

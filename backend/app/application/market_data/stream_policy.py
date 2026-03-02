@@ -4,10 +4,8 @@ SUPPORTED_STREAM_CHANNELS = frozenset({"quote", "trade", "aggregate"})
 
 
 def allowed_stream_channels(*, realtime_enabled: bool) -> set[str]:
-    channels = {"trade", "aggregate"}
-    if realtime_enabled:
-        channels.add("quote")
-    return channels
+    _ = realtime_enabled
+    return set(SUPPORTED_STREAM_CHANNELS)
 
 
 def default_stream_channels(*, realtime_enabled: bool) -> set[str]:

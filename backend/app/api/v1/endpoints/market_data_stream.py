@@ -10,13 +10,13 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
-from app.api.deps import get_auth_service, get_market_stream_hub, get_watchlist_service
+from app.api.deps import get_auth_service, get_market_data_service, get_market_stream_hub, get_watchlist_service
 from app.application.auth.service import AuthApplicationService
+from app.application.market_data.service import MarketDataApplicationService
 from app.application.market_data.stream_hub import StockMarketStreamHub
 from app.application.market_data.stream_policy import (
     allowed_stream_channels,
     default_stream_channels,
-    delayed_latency_message,
 )
 from app.application.market_data.stream_session import MarketStreamSession, parse_stream_action
 from app.application.watchlist.service import WatchlistApplicationService
@@ -32,17 +32,16 @@ async def market_data_stream(
     websocket: WebSocket,
     hub: StockMarketStreamHub = Depends(get_market_stream_hub),
     auth_service: AuthApplicationService = Depends(get_auth_service),
+    market_data_service: MarketDataApplicationService = Depends(get_market_data_service),
     watchlist_service: WatchlistApplicationService = Depends(get_watchlist_service),
 ) -> None:
-    accepted_subprotocol = _resolve_accepted_subprotocol(websocket)
     token, from_cookie, token_source = _extract_ws_token(websocket)
     client_address = _ws_client_address(websocket)
-    await websocket.accept(subprotocol=accepted_subprotocol)
+    await websocket.accept()
     logger.warning(
-        "market stream ws accepted: client=%s token_source=%s accepted_subprotocol=%s",
+        "market stream ws accepted: client=%s token_source=%s",
         client_address,
         token_source,
-        accepted_subprotocol,
     )
     if not token:
         logger.warning(
@@ -69,6 +68,18 @@ async def market_data_stream(
             token_source,
         )
         await websocket.close(code=4401, reason="invalid token")
+        return
+
+    stream_session_open = await market_data_service.is_stream_session_open(
+        delay_minutes=settings.market_stream_delay_minutes,
+    )
+    if not stream_session_open:
+        logger.warning(
+            "market stream ws closing: client=%s code=4409 reason=market session closed delay_minutes=%s",
+            client_address,
+            settings.market_stream_delay_minutes,
+        )
+        await websocket.close(code=4409, reason="market session closed")
         return
 
     connection_id = uuid4().hex
@@ -102,8 +113,8 @@ async def market_data_stream(
         await _send_ws_json(
             websocket,
             payload=_system_status(
-                latency="delayed" if not settings.market_stream_realtime_enabled else hub.current_latency(),
-                connection_state="disabled" if not settings.market_stream_realtime_enabled else "connected",
+                latency=hub.current_latency(),
+                connection_state=_connection_state_for_connection(hub=hub),
                 message=_status_message_for_connection(hub=hub),
             ),
             send_lock=send_lock,
@@ -262,14 +273,6 @@ def _extract_ws_token(websocket: WebSocket) -> tuple[str | None, bool, str]:
     authorization = websocket.headers.get("authorization")
     if authorization and authorization.lower().startswith("bearer "):
         return authorization.split(" ", maxsplit=1)[1].strip(), False, "authorization"
-
-    subprotocol = websocket.headers.get("sec-websocket-protocol", "")
-    if subprotocol:
-        segments = [segment.strip() for segment in subprotocol.split(",") if segment.strip()]
-        if len(segments) >= 2 and segments[0].lower() in {"bearer", "token"}:
-            return segments[1], False, "subprotocol_pair"
-        if len(segments) == 1:
-            return segments[0], False, "subprotocol_single"
     return None, False, "none"
 
 
@@ -278,17 +281,6 @@ def _ws_client_address(websocket: WebSocket) -> str:
     if client is None:
         return "unknown"
     return f"{client.host}:{client.port}"
-
-
-def _resolve_accepted_subprotocol(websocket: WebSocket) -> str | None:
-    subprotocol = websocket.headers.get("sec-websocket-protocol", "")
-    if not subprotocol:
-        return None
-    segments = [segment.strip() for segment in subprotocol.split(",") if segment.strip()]
-    if len(segments) >= 2 and segments[0].lower() in {"bearer", "token"}:
-        # The second segment may carry credential material and must never be echoed back.
-        return segments[0]
-    return None
 
 
 def _is_ws_origin_allowed(websocket: WebSocket) -> bool:
@@ -379,10 +371,15 @@ def _utc_now_iso() -> str:
 
 
 def _status_message_for_connection(*, hub: StockMarketStreamHub) -> str | None:
-    if not settings.market_stream_realtime_enabled:
-        return delayed_latency_message(delay_minutes=settings.market_stream_delay_minutes)
-
     value = hub.current_status_message()
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _connection_state_for_connection(*, hub: StockMarketStreamHub) -> str:
+    if hub.current_latency() == "real-time":
+        return "connected"
+    if not settings.market_stream_realtime_enabled:
+        return "connected"
+    return "reconnecting"

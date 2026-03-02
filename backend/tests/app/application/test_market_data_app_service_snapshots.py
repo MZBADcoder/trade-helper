@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timezone
 
 import pytest
@@ -43,6 +44,20 @@ class FakeSnapshotRepo:
 class FakeUoWWithRepo(FakeUoW):
     def __init__(self, repo: FakeSnapshotRepo) -> None:
         self.market_data_repo = repo
+
+
+class FakeDelayAwareTradingCalendar:
+    def __init__(self, *, is_open: bool) -> None:
+        self._is_open = is_open
+        self.checked_points: list[datetime] = []
+        self.ensure_called = 0
+
+    async def ensure_holiday_cache(self) -> None:
+        self.ensure_called += 1
+
+    def is_in_trading_session(self, *, point: datetime) -> bool:
+        self.checked_points.append(point)
+        return self._is_open
 
 
 class FakeMassiveSnapshotClient:
@@ -109,6 +124,27 @@ async def test_list_snapshots_raises_upstream_unavailable_when_client_missing() 
 
     with pytest.raises(ValueError, match="MARKET_DATA_UPSTREAM_UNAVAILABLE"):
         await service.list_snapshots(tickers=["AAPL"])
+
+
+def test_is_stream_session_open_applies_delay_before_calendar_check() -> None:
+    calendar = FakeDelayAwareTradingCalendar(is_open=True)
+    service = MarketDataApplicationService(
+        uow=FakeUoW(),
+        massive_client=None,
+        trading_calendar=calendar,  # type: ignore[arg-type]
+    )
+    now = datetime(2026, 2, 24, 14, 55, tzinfo=timezone.utc)
+
+    is_open = asyncio.run(
+        service.is_stream_session_open(
+            delay_minutes=15,
+            now=now,
+        )
+    )
+
+    assert is_open is True
+    assert calendar.ensure_called == 1
+    assert calendar.checked_points == [datetime(2026, 2, 24, 14, 40, tzinfo=timezone.utc)]
 
 
 async def test_list_snapshots_returns_mapped_domain_snapshots() -> None:

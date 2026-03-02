@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   marketQueryForTimeframe,
   mergeBarsByStartAt,
+  isMarketStreamWindowOpen,
   resolveMarketRealtimeConfig,
   resolveStreamWsBaseUrl,
   shouldIgnoreMarketMessage,
@@ -161,14 +162,12 @@ describe("mergeBarsByStartAt", () => {
 });
 
 describe("resolveMarketRealtimeConfig", () => {
-  it("reads realtime enabled and delay minutes from env-like values", () => {
+  it("reads delay minutes from env-like values", () => {
     expect(
       resolveMarketRealtimeConfig({
-        realtimeEnabled: "true",
         delayMinutes: "30"
       })
     ).toEqual({
-      realtimeEnabled: true,
       delayMinutes: 30
     });
   });
@@ -176,11 +175,9 @@ describe("resolveMarketRealtimeConfig", () => {
   it("falls back to defaults for invalid values", () => {
     expect(
       resolveMarketRealtimeConfig({
-        realtimeEnabled: "invalid",
         delayMinutes: "-1"
       })
     ).toEqual({
-      realtimeEnabled: true,
       delayMinutes: 15
     });
   });
@@ -188,21 +185,17 @@ describe("resolveMarketRealtimeConfig", () => {
   it("rejects non-digit delay formats", () => {
     expect(
       resolveMarketRealtimeConfig({
-        realtimeEnabled: "true",
         delayMinutes: "1e2"
       })
     ).toEqual({
-      realtimeEnabled: true,
       delayMinutes: 15
     });
 
     expect(
       resolveMarketRealtimeConfig({
-        realtimeEnabled: "true",
         delayMinutes: "15m"
       })
     ).toEqual({
-      realtimeEnabled: true,
       delayMinutes: 15
     });
   });
@@ -245,14 +238,13 @@ describe("resolveStreamWsBaseUrl", () => {
 });
 
 describe("streamChannelsForRealtime", () => {
-  it("excludes quote channel in delayed mode", () => {
-    expect(streamChannelsForRealtime(true)).toEqual(["trade", "quote", "aggregate"]);
-    expect(streamChannelsForRealtime(false)).toEqual(["trade", "aggregate"]);
+  it("always keeps the same stream channels", () => {
+    expect(streamChannelsForRealtime()).toEqual(["trade", "quote", "aggregate"]);
   });
 });
 
 describe("shouldIgnoreMarketMessage", () => {
-  it("ignores quote messages when realtime is disabled", () => {
+  it("does not ignore quote messages", () => {
     expect(
       shouldIgnoreMarketMessage(
         {
@@ -263,10 +255,9 @@ describe("shouldIgnoreMarketMessage", () => {
           ask: 203.12,
           bidSize: 10,
           askSize: 9
-        },
-        false
+        }
       )
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       shouldIgnoreMarketMessage(
@@ -277,29 +268,27 @@ describe("shouldIgnoreMarketMessage", () => {
           price: 203.11,
           last: 203.11,
           size: 10
-        },
-        false
+        }
       )
     ).toBe(false);
   });
 });
 
 describe("shouldStopDegradedPollingOnStatus", () => {
-  it("stops degraded polling when delayed mode reconnects", () => {
+  it("stops degraded polling when stream reports connected", () => {
     expect(
       shouldStopDegradedPollingOnStatus(
         {
           type: "system.status",
-          latency: "real-time",
+          latency: "delayed",
           connectionState: "connected",
           message: "ok"
-        },
-        false
+        }
       )
     ).toBe(true);
   });
 
-  it("does not stop degraded polling when delayed mode is not connected", () => {
+  it("does not stop degraded polling when stream is reconnecting", () => {
     expect(
       shouldStopDegradedPollingOnStatus(
         {
@@ -307,9 +296,48 @@ describe("shouldStopDegradedPollingOnStatus", () => {
           latency: "real-time",
           connectionState: "reconnecting",
           message: null
-        },
-        false
+        }
       )
+    ).toBe(false);
+  });
+
+  it("stops degraded polling when connection_state is missing", () => {
+    expect(
+      shouldStopDegradedPollingOnStatus(
+        {
+          type: "system.status",
+          latency: "delayed",
+          connectionState: null,
+          message: null
+        }
+      )
+    ).toBe(true);
+  });
+});
+
+describe("isMarketStreamWindowOpen", () => {
+  it("uses delayed clock to decide stream window", () => {
+    expect(
+      isMarketStreamWindowOpen({
+        delayMinutes: 15,
+        nowMs: Date.parse("2026-02-24T14:40:00Z")
+      })
+    ).toBe(false);
+
+    expect(
+      isMarketStreamWindowOpen({
+        delayMinutes: 15,
+        nowMs: Date.parse("2026-02-24T14:50:00Z")
+      })
+    ).toBe(true);
+  });
+
+  it("returns false on weekends", () => {
+    expect(
+      isMarketStreamWindowOpen({
+        delayMinutes: 15,
+        nowMs: Date.parse("2026-02-22T16:00:00Z")
+      })
     ).toBe(false);
   });
 });

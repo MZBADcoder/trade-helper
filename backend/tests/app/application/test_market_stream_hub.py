@@ -292,7 +292,14 @@ def test_stream_hub_restarts_subscriber_after_crash() -> None:
             queue_size=32,
         )
 
-        await hub.register_connection(connection_id="c1", user_id=1)
+        queue = await hub.register_connection(connection_id="c1", user_id=1)
+        status_payload = await asyncio.wait_for(queue.get(), timeout=1.0)
+        assert status_payload["type"] == "system.status"
+        assert status_payload["data"]["latency"] == "delayed"
+        assert status_payload["data"]["connection_state"] == "reconnecting"
+        assert status_payload["data"]["message"] == "market stream subscriber crashed, retrying"
+        assert hub.current_latency() == "delayed"
+        assert hub.current_status_message() == "market stream subscriber crashed, retrying"
         await asyncio.wait_for(subscriber.second_listen_seen.wait(), timeout=3.0)
         await hub.unregister_connection(connection_id="c1")
         await hub.shutdown()
@@ -300,7 +307,7 @@ def test_stream_hub_restarts_subscriber_after_crash() -> None:
     asyncio.run(scenario())
 
 
-def test_stream_hub_delayed_mode_blocks_quote_and_forces_delayed_status() -> None:
+def test_stream_hub_delayed_mode_blocks_quote_and_marks_status_as_delayed() -> None:
     async def scenario() -> None:
         hub = StockMarketStreamHub(
             event_subscriber=None,
@@ -341,7 +348,7 @@ def test_stream_hub_delayed_mode_blocks_quote_and_forces_delayed_status() -> Non
         )
         status_payload = queue.get_nowait()
         assert status_payload["data"]["latency"] == "delayed"
-        assert status_payload["data"]["connection_state"] == "disabled"
+        assert status_payload["data"]["connection_state"] == "connected"
         assert status_payload["data"]["message"] == "delayed 15min"
         assert hub.current_latency() == "delayed"
 

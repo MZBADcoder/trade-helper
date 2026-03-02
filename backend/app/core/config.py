@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     market_stream_delay_minutes: int = 15
     market_stream_gateway_instance_id: str | None = None
     options_data_enabled: bool = False
+    demo_endpoints_enabled: bool = False
 
     postgres_db: str = "trader_helper"
     postgres_user: str = "trader_helper"
@@ -56,6 +57,14 @@ class Settings(BaseSettings):
 
     cors_allow_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    @property
+    def normalized_app_env(self) -> str:
+        return self.app_env.strip().lower()
+
+    @property
+    def is_production_env(self) -> bool:
+        return self.normalized_app_env in {"prod", "production"}
+
     @model_validator(mode="after")
     def _validate_app_secret_key(self) -> "Settings":
         normalized = (self.app_secret_key or "").strip()
@@ -65,7 +74,7 @@ class Settings(BaseSettings):
             "replace-me",
             "replace-with-strong-random-secret",
         }
-        is_prod = self.app_env.lower() in {"prod", "production"}
+        is_prod = self.is_production_env
 
         if not normalized:
             if is_prod:

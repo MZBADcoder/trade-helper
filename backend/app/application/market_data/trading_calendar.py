@@ -75,21 +75,41 @@ class TradingCalendar:
     def is_trading_day(self, *, target_date: date) -> bool:
         return self.session_minutes(target_date=target_date) > 0
 
-    def session_minutes(self, *, target_date: date) -> int:
-        base_minutes = self._base_session_minutes(target_date=target_date)
+    def is_in_trading_session(self, *, point: datetime) -> bool:
+        market_point = _to_market_datetime(point)
+        session_bounds = self.session_bounds(target_date=market_point.date())
+        if session_bounds is None:
+            return False
+        opened_at, closed_at = session_bounds
+        return opened_at <= market_point < closed_at
+
+    def session_bounds(self, *, target_date: date) -> tuple[datetime, datetime] | None:
+        base_bounds = self._base_session_bounds(target_date=target_date)
+        if base_bounds is None:
+            return None
+
         if target_date < self._today_provider():
-            return base_minutes
+            return base_bounds
 
         override = self._holiday_override(target_date=target_date)
         if override is None:
-            return base_minutes
+            return base_bounds
         if override.closed:
-            return 0
+            return None
         if override.open_time is None or override.close_time is None:
-            return base_minutes
+            return base_bounds
 
         opened_at = datetime.combine(target_date, override.open_time, tzinfo=MARKET_TIMEZONE)
         closed_at = datetime.combine(target_date, override.close_time, tzinfo=MARKET_TIMEZONE)
+        if closed_at <= opened_at:
+            return None
+        return opened_at, closed_at
+
+    def session_minutes(self, *, target_date: date) -> int:
+        session_bounds = self.session_bounds(target_date=target_date)
+        if session_bounds is None:
+            return 0
+        opened_at, closed_at = session_bounds
         return max(0, int((closed_at - opened_at).total_seconds() // 60))
 
     def count_trading_days(
@@ -163,18 +183,20 @@ class TradingCalendar:
         result.reverse()
         return result
 
-    def _base_session_minutes(self, *, target_date: date) -> int:
+    def _base_session_bounds(self, *, target_date: date) -> tuple[datetime, datetime] | None:
         session = pd.Timestamp(target_date.isoformat())
         try:
             if not self._exchange_calendar.is_session(session):
-                return 0
-            opened_at = self._exchange_calendar.session_open(session)
-            closed_at = self._exchange_calendar.session_close(session)
-            return max(0, int((closed_at - opened_at).total_seconds() // 60))
+                return None
+            opened_at = self._exchange_calendar.session_open(session).to_pydatetime()
+            closed_at = self._exchange_calendar.session_close(session).to_pydatetime()
+            return _to_market_datetime(opened_at), _to_market_datetime(closed_at)
         except DateOutOfBounds:
             if target_date.weekday() >= 5:
-                return 0
-            return 390
+                return None
+            opened_at = datetime.combine(target_date, time(hour=9, minute=30), tzinfo=MARKET_TIMEZONE)
+            closed_at = datetime.combine(target_date, time(hour=16, minute=0), tzinfo=MARKET_TIMEZONE)
+            return opened_at, closed_at
 
     def _holiday_override(self, *, target_date: date) -> _HolidayOverride | None:
         return self._holiday_overrides.get(target_date)
@@ -252,3 +274,9 @@ def _parse_time(raw: str) -> time | None:
         return time.fromisoformat(raw[:8])
     except ValueError:
         return None
+
+
+def _to_market_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=MARKET_TIMEZONE)
+    return value.astimezone(MARKET_TIMEZONE)

@@ -94,8 +94,6 @@ def build_auth_service() -> AuthApplicationService:
 
 @lru_cache
 def _massive_stocks_stream_client() -> MassiveStocksWebSocketClient | None:
-    if not settings.market_stream_realtime_enabled:
-        return None
     if not settings.massive_api_key:
         return None
     return MassiveStocksWebSocketClient(api_key=settings.massive_api_key)

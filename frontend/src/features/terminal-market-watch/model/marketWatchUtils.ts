@@ -4,7 +4,6 @@ import { type StreamMarketMessage, type StreamStatusMessage } from "./streamProt
 import { type TimeframeKey, type TimeframeOption } from "./types";
 
 const STREAM_CHANNELS_REALTIME = ["trade", "quote", "aggregate"];
-const STREAM_CHANNELS_DELAYED = ["trade", "aggregate"];
 const DEFAULT_MARKET_DELAY_MINUTES = 15;
 
 const INTRADAY_LOOKBACK_DAYS = 10;
@@ -12,11 +11,22 @@ const INTRADAY_LOAD_WINDOW_DAYS_1M = 3;
 const INTRADAY_CHUNK_WINDOW_DAYS_1M = 3;
 const LONG_TERM_LOOKBACK_DAYS = 3650;
 const MARKET_TIME_ZONE = "America/New_York";
+const MARKET_OPEN_MINUTE = 9 * 60 + 30;
+const MARKET_CLOSE_MINUTE = 16 * 60;
+const TRADING_WEEKDAYS = new Set(["Mon", "Tue", "Wed", "Thu", "Fri"]);
 const MARKET_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   timeZone: MARKET_TIME_ZONE,
   year: "numeric",
   month: "2-digit",
   day: "2-digit"
+});
+const MARKET_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: MARKET_TIME_ZONE,
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  hourCycle: "h23",
 });
 
 export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
@@ -35,12 +45,10 @@ type StreamWsBaseUrlParams = {
 };
 
 type MarketRealtimeConfigEnv = {
-  realtimeEnabled?: string;
   delayMinutes?: string;
 };
 
 export type MarketRealtimeConfig = {
-  realtimeEnabled: boolean;
   delayMinutes: number;
 };
 
@@ -66,27 +74,43 @@ export type TradingDateRange = DateRange & {
 };
 
 export function resolveMarketRealtimeConfig(env: MarketRealtimeConfigEnv): MarketRealtimeConfig {
-  const realtimeEnabled = parseEnvBoolean(env.realtimeEnabled, true);
   const delayMinutes = parsePositiveInt(env.delayMinutes, DEFAULT_MARKET_DELAY_MINUTES);
-  return { realtimeEnabled, delayMinutes };
+  return { delayMinutes };
 }
 
-export function streamChannelsForRealtime(realtimeEnabled: boolean): string[] {
-  return realtimeEnabled ? STREAM_CHANNELS_REALTIME : STREAM_CHANNELS_DELAYED;
+export function streamChannelsForRealtime(): string[] {
+  return STREAM_CHANNELS_REALTIME;
 }
 
-export function shouldIgnoreMarketMessage(message: StreamMarketMessage, realtimeEnabled: boolean): boolean {
-  return !realtimeEnabled && message.type === "market.quote";
+export function shouldIgnoreMarketMessage(message: StreamMarketMessage): boolean {
+  void message;
+  return false;
 }
 
-export function shouldStopDegradedPollingOnStatus(
-  message: StreamStatusMessage,
-  realtimeEnabled: boolean
-): boolean {
-  if (!realtimeEnabled) {
-    return message.connectionState === "connected";
+export function shouldStopDegradedPollingOnStatus(message: StreamStatusMessage): boolean {
+  return message.connectionState === null || message.connectionState === "connected";
+}
+
+export function isMarketStreamWindowOpen(params: {
+  delayMinutes: number;
+  nowMs?: number;
+}): boolean {
+  const delayMinutes = Math.max(0, Math.trunc(params.delayMinutes));
+  const delayedNow = new Date((params.nowMs ?? Date.now()) - delayMinutes * 60_000);
+  const parts = MARKET_CLOCK_FORMATTER.formatToParts(delayedNow);
+  const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
+  if (!TRADING_WEEKDAYS.has(weekday)) {
+    return false;
   }
-  return message.latency === "real-time" && (message.connectionState === null || message.connectionState === "connected");
+
+  const hourValue = Number(parts.find((part) => part.type === "hour")?.value ?? "");
+  const minuteValue = Number(parts.find((part) => part.type === "minute")?.value ?? "");
+  if (!Number.isFinite(hourValue) || !Number.isFinite(minuteValue)) {
+    return false;
+  }
+
+  const minuteOfDay = hourValue * 60 + minuteValue;
+  return minuteOfDay >= MARKET_OPEN_MINUTE && minuteOfDay < MARKET_CLOSE_MINUTE;
 }
 
 export function dateOffset(days: number): string {
@@ -442,14 +466,6 @@ function normalizeWsBaseUrl(raw: string | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-function parseEnvBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined) return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

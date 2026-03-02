@@ -88,6 +88,7 @@ class MarketStreamSession:
         allowed_symbols: set[str],
         now: float | None = None,
     ) -> StreamActionOutcome:
+        requested_channels: set[str] | None = None
         if action.channels:
             try:
                 requested_channels = _normalize_supported_channels(action.channels)
@@ -113,7 +114,6 @@ class MarketStreamSession:
                         message=f"channels not allowed in current mode: {blocked}",
                     ),
                 )
-            self._desired_channels = requested_channels
 
         if action.action in {"ping", "pong"}:
             self.touch_client_ping(now=now)
@@ -124,6 +124,8 @@ class MarketStreamSession:
             )
 
         if action.action == "unsubscribe":
+            if requested_channels is not None:
+                self._desired_channels = requested_channels
             self._desired_symbols = self._desired_symbols.difference(action.symbols)
             return StreamActionOutcome(
                 changed=True,
@@ -178,6 +180,8 @@ class MarketStreamSession:
                 ),
             )
 
+        if requested_channels is not None:
+            self._desired_channels = requested_channels
         self._desired_symbols = next_symbols
         return StreamActionOutcome(
             changed=True,

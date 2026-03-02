@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 import re
 from typing import Any
@@ -179,12 +180,18 @@ class StockMarketStreamHub:
                 if self._listener_stop_event.is_set():
                     return
                 logger.warning("Market stream redis subscriber stopped unexpectedly, restarting")
-                self._set_delayed_state()
+                await self._mark_degraded_and_notify(
+                    connection_state="reconnecting",
+                    message="market stream subscriber stopped, retrying",
+                )
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Market stream redis subscriber crashed")
-                self._set_delayed_state()
+                await self._mark_degraded_and_notify(
+                    connection_state="reconnecting",
+                    message="market stream subscriber crashed, retrying",
+                )
 
             if self._listener_stop_event.is_set():
                 return
@@ -265,19 +272,7 @@ class StockMarketStreamHub:
     async def _handle_bus_message(self, payload: dict[str, Any]) -> None:
         message_type = str(payload.get("type", "")).strip().lower()
         if message_type == "system.status":
-            if self._realtime_enabled:
-                data = payload.get("data")
-                if isinstance(data, dict):
-                    latency = str(data.get("latency", "")).strip().lower()
-                    if latency in {"real-time", "delayed"}:
-                        self._latency = latency
-                    message = data.get("message")
-                    if isinstance(message, str) and message.strip():
-                        self._status_message = message.strip()
-                    else:
-                        self._status_message = None
-            else:
-                payload = self._enforce_delayed_status(payload)
+            payload = self._normalize_status_payload(payload)
             await self._broadcast(payload)
             return
 
@@ -319,13 +314,42 @@ class StockMarketStreamHub:
             delayed_latency_message(delay_minutes=self._delay_minutes) if not self._realtime_enabled else None
         )
 
-    def _enforce_delayed_status(self, payload: dict[str, Any]) -> dict[str, Any]:
-        self._set_delayed_state()
+    async def _mark_degraded_and_notify(self, *, connection_state: str, message: str) -> None:
+        payload = self._normalize_status_payload(
+            {
+                "type": "system.status",
+                "ts": _utc_now_iso(),
+                "source": "WS",
+                "data": {
+                    "latency": "delayed",
+                    "connection_state": connection_state,
+                    "message": message,
+                },
+            }
+        )
+        await self._broadcast(payload)
+
+    def _normalize_status_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = payload.get("data")
         normalized_data = dict(data) if isinstance(data, dict) else {}
-        normalized_data["latency"] = "delayed"
-        normalized_data["connection_state"] = "disabled"
-        normalized_data["message"] = delayed_latency_message(delay_minutes=self._delay_minutes)
+        latency = str(normalized_data.get("latency", "")).strip().lower()
+        if latency not in {"real-time", "delayed"}:
+            latency = "delayed"
+
+        if not self._realtime_enabled and latency == "real-time":
+            latency = "delayed"
+        normalized_data["latency"] = latency
+        self._latency = latency
+
+        message = normalized_data.get("message")
+        if isinstance(message, str) and message.strip():
+            self._status_message = message.strip()
+        else:
+            self._status_message = None
+        if not self._realtime_enabled and self._status_message is None:
+            self._status_message = delayed_latency_message(delay_minutes=self._delay_minutes)
+            normalized_data["message"] = self._status_message
+
         return {
             **payload,
             "data": normalized_data,
@@ -401,6 +425,10 @@ def _decrease_topic_refs(refs: dict[str, int], topics: set[str]) -> None:
             refs.pop(topic, None)
             continue
         refs[topic] = current - 1
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _enqueue_payload(queue: asyncio.Queue[dict[str, Any]], payload: dict[str, Any]) -> None:

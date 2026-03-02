@@ -68,7 +68,6 @@ function createViewModel(
     streamStatus: "connected",
     streamSource: "REST",
     dataLatency: "delayed",
-    realtimeEnabled: true,
     delayMinutes: 15,
     lastSyncAt: null,
     lastError: null,
@@ -111,10 +110,10 @@ describe("TerminalMarketWatch", () => {
     expect(screen.getByText("Bars: -")).toBeTruthy();
   });
 
-  it("shows delayed hint when realtime is disabled", () => {
+  it("shows delayed hint when latency is delayed", () => {
     useTerminalMarketWatchMock.mockReturnValue(
       createViewModel({
-        realtimeEnabled: false,
+        dataLatency: "delayed",
         delayMinutes: 15
       })
     );

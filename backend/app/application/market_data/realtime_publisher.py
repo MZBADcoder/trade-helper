@@ -45,17 +45,6 @@ class StockMarketRealtimePublisher:
 
     async def run(self, *, stop_event: asyncio.Event) -> None:
         try:
-            if not self._realtime_enabled:
-                await self._event_publisher.publish(
-                    build_system_status(
-                        latency="delayed",
-                        connection_state="disabled",
-                        message=self._delayed_message,
-                    )
-                )
-                await stop_event.wait()
-                return
-
             if self._upstream_client is None:
                 await self._event_publisher.publish(
                     build_system_error(
@@ -67,8 +56,14 @@ class StockMarketRealtimePublisher:
                 return
 
             while not stop_event.is_set():
-                topics = await self._topic_registry.collect_topics()
-                await self._reconcile_upstream(topics)
+                try:
+                    topics = await self._topic_registry.collect_topics()
+                    await self._reconcile_upstream(topics)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Market realtime publisher reconcile loop failed")
+                    await self._publish_reconcile_error()
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=self._reconcile_interval)
                 except asyncio.TimeoutError:
@@ -85,7 +80,7 @@ class StockMarketRealtimePublisher:
         await self._event_publisher.close()
 
     async def _reconcile_upstream(self, topics: set[str]) -> None:
-        if self._upstream_client is None or not self._realtime_enabled:
+        if self._upstream_client is None:
             return
 
         if topics:
@@ -107,8 +102,6 @@ class StockMarketRealtimePublisher:
             )
 
     async def _handle_upstream_events(self, events: list[dict[str, Any]]) -> None:
-        if not self._realtime_enabled:
-            return
         for event in events:
             payload = map_massive_event_to_market_message(event)
             if payload is None:
@@ -116,21 +109,15 @@ class StockMarketRealtimePublisher:
             await self._event_publisher.publish(payload)
 
     async def _handle_upstream_status(self, state: str, message: str | None) -> None:
-        if not self._realtime_enabled:
-            await self._event_publisher.publish(
-                build_system_status(
-                    latency="delayed",
-                    connection_state="disabled",
-                    message=self._delayed_message,
-                )
-            )
-            return
-        latency = "real-time" if state == "connected" else "delayed"
+        latency = "real-time" if self._realtime_enabled and state == "connected" else "delayed"
+        status_message = message
+        if not self._realtime_enabled and state == "connected" and not status_message:
+            status_message = self._delayed_message
         await self._event_publisher.publish(
             build_system_status(
                 latency=latency,
                 connection_state=state,
-                message=message,
+                message=status_message,
             )
         )
         if state in {"auth_failed", "error"}:
@@ -142,3 +129,14 @@ class StockMarketRealtimePublisher:
             )
             return
         logger.debug("Upstream status changed to %s", state)
+
+    async def _publish_reconcile_error(self) -> None:
+        try:
+            await self._event_publisher.publish(
+                build_system_error(
+                    code="STREAM_UPSTREAM_UNAVAILABLE",
+                    message="market stream reconcile failed, retrying",
+                )
+            )
+        except Exception:
+            logger.exception("Failed to publish reconcile error event")

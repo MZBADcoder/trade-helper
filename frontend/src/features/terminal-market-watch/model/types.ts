@@ -65,7 +65,6 @@ export type TerminalMarketWatchViewModel = {
   streamStatus: StreamStatus;
   streamSource: StreamSource;
   dataLatency: DataLatency;
-  realtimeEnabled: boolean;
   delayMinutes: number;
   lastSyncAt: string | null;
   lastError: string | null;
