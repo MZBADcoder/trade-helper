@@ -57,4 +57,5 @@ class SqlAlchemyAuthRepository:
         user.last_login_at = datetime.now(tz=timezone.utc)
         self._session.add(user)
         await self._session.flush()
+        await self._session.refresh(user)
         return user_to_domain(user)
