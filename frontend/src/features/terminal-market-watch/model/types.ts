@@ -71,6 +71,7 @@ export type TerminalMarketWatchViewModel = {
   refreshSnapshots: (symbols?: string[]) => Promise<void>;
 
   streamStatus: StreamStatus;
+  websocketEnabled: boolean;
   streamSource: StreamSource;
   dataLatency: DataLatency;
   delayMinutes: number;

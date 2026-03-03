@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -14,6 +14,7 @@ from app.application.market_data.policy import (
     normalize_timespan,
 )
 from app.application.market_data.snapshot_mapper import to_market_snapshot
+from app.application.market_data.stream_policy import normalized_delay_minutes
 from app.application.market_data.trading_calendar import TradingCalendar
 from app.core.config import settings
 from app.domain.market_data.aggregation import (
@@ -165,8 +166,12 @@ class MarketDataApplicationService:
         baselines = await self._list_daily_snapshot_baselines(tickers=normalized_tickers)
         snapshots_by_symbol = {symbol: baseline.snapshot for symbol, baseline in baselines.items()}
 
-        today = market_trade_date(point=datetime.now(tz=timezone.utc))
+        now_utc = datetime.now(tz=timezone.utc)
+        today = market_trade_date(point=now_utc)
         today_is_trading_day = self._trading_calendar.is_trading_day(target_date=today)
+        delay_minutes = normalized_delay_minutes(settings.market_stream_delay_minutes)
+        status_point = now_utc - timedelta(minutes=delay_minutes)
+        market_open_for_status = self._trading_calendar.is_in_trading_session(point=status_point)
         missing_symbols = [symbol for symbol in normalized_tickers if symbol not in snapshots_by_symbol]
         should_fetch_massive = self._massive_client is not None and (
             today_is_trading_day or bool(missing_symbols)
@@ -184,6 +189,7 @@ class MarketDataApplicationService:
                     mapped = to_market_snapshot(item)
                     if mapped is None:
                         continue
+                    mapped = _with_resolved_market_status(snapshot=mapped, market_open=market_open_for_status)
                     baseline = baselines.get(mapped.ticker)
                     snapshots_by_symbol[mapped.ticker] = _merge_snapshot(
                         baseline=baseline,
@@ -429,6 +435,31 @@ class MarketDataApplicationService:
                 limit=None,
             )
 
+            agg_coverage = await repo.get_minute_agg_range_coverage(
+                ticker=query.ticker,
+                multiplier=query.multiplier,
+            )
+            if not _coverage_contains(coverage=agg_coverage, start_at=query.start_at, end_at=query.end_at):
+                minute_bars = await repo.list_minute_bars(
+                    ticker=query.ticker,
+                    start_at=query.start_at,
+                    end_at=query.end_at,
+                    limit=None,
+                    session=query.session,
+                )
+                rebuilt = aggregate_minute_bars(
+                    ticker=query.ticker,
+                    multiplier=query.multiplier,
+                    bars=minute_bars,
+                    source="DB_AGG",
+                    now=now,
+                    include_unfinished=False,
+                )
+                if rebuilt:
+                    finalized = _merge_bars_by_start_at(existing=finalized, incoming=rebuilt)
+                    await repo.upsert_minute_agg_bars(finalized)
+                    await uow.commit()
+
             mixed_bucket = None
             if self._trading_calendar.is_trading_day(target_date=market_trade_date(point=now)):
                 mixed_bucket = resolve_current_open_bucket(now=now, multiplier=query.multiplier)
@@ -648,6 +679,14 @@ def _calc_change(*, current: float, previous: float | None) -> tuple[float, floa
     return change, change_pct
 
 
+def _with_resolved_market_status(*, snapshot: MarketSnapshot, market_open: bool) -> MarketSnapshot:
+    normalized = snapshot.market_status.strip().lower()
+    if normalized and normalized != "unknown":
+        return snapshot
+
+    return replace(snapshot, market_status="open" if market_open else "closed")
+
+
 def _build_bars_query(
     *,
     ticker: str,
@@ -763,6 +802,13 @@ def _apply_limit(bars: list[MarketBar], *, limit: int | None) -> list[MarketBar]
     if not limit or limit < 1:
         return bars
     return bars[:limit]
+
+
+def _merge_bars_by_start_at(*, existing: list[MarketBar], incoming: list[MarketBar]) -> list[MarketBar]:
+    merged = {bar.start_at: bar for bar in existing}
+    for bar in incoming:
+        merged[bar.start_at] = bar
+    return sorted(merged.values(), key=lambda bar: bar.start_at)
 
 
 def _minute_query_bounds_utc(*, start_date: date, end_date: date, session: str) -> tuple[datetime, datetime]:

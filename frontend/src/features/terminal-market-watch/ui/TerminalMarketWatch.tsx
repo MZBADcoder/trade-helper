@@ -6,6 +6,7 @@ import { TerminalEmptyGraphic } from "@/shared/ui";
 import {
   formatDateTime,
   formatTime,
+  marketStatusLabel,
   shrinkText,
   snapshotToneClass,
   streamStatusClass,
@@ -46,6 +47,7 @@ export function TerminalMarketWatch() {
     refreshSnapshots,
 
     streamStatus,
+    websocketEnabled,
     streamSource,
     dataLatency,
     delayMinutes,
@@ -53,10 +55,11 @@ export function TerminalMarketWatch() {
     lastError
   } = useTerminalMarketWatch();
 
-  const streamLabel = streamStatusLabel(streamStatus);
-  const streamClass = streamStatusClass(streamStatus);
+  const streamLabel = websocketEnabled ? streamStatusLabel(streamStatus) : "REST Only";
+  const streamClass = websocketEnabled ? streamStatusClass(streamStatus) : "statusIdle";
   const delayedHintLabel = `Delayed by ${delayMinutes} minutes`;
-  const shouldShowDelayedHint = dataLatency === "delayed";
+  const shouldShowDelayedHint = dataLatency === "delayed" && delayMinutes > 0;
+  const marketStatus = marketStatusLabel(activeSnapshot?.market_status, { websocketEnabled });
 
   return (
     <main className="terminalPage terminalPageV2">
@@ -210,7 +213,7 @@ export function TerminalMarketWatch() {
                   </span>
                   <span className="sourceTag">Bars: {activeDetail?.barsDataSource ?? "-"}</span>
                   <span className="sourceTag">Session: {session}</span>
-                  <span className="pill">Market: {activeSnapshot?.market_status ?? "-"}</span>
+                  <span className="pill">Market: {marketStatus}</span>
                 </div>
 
                 <div className="metricRow metricRowV2">

@@ -11,6 +11,7 @@ import {
   shouldIgnoreMarketMessage,
   shouldStopDegradedPollingOnStatus,
   streamChannelsForRealtime,
+  websocketEnabledForDelay,
   TIMEFRAME_OPTIONS
 } from "./marketWatchUtils";
 
@@ -197,6 +198,16 @@ describe("resolveMarketRealtimeConfig", () => {
     });
   });
 
+  it("accepts zero delay for realtime websocket mode", () => {
+    expect(
+      resolveMarketRealtimeConfig({
+        delayMinutes: "0"
+      })
+    ).toEqual({
+      delayMinutes: 0
+    });
+  });
+
   it("rejects non-digit delay formats", () => {
     expect(
       resolveMarketRealtimeConfig({
@@ -213,6 +224,13 @@ describe("resolveMarketRealtimeConfig", () => {
     ).toEqual({
       delayMinutes: 15
     });
+  });
+});
+
+describe("websocketEnabledForDelay", () => {
+  it("enables websocket only when delay is zero", () => {
+    expect(websocketEnabledForDelay(0)).toBe(true);
+    expect(websocketEnabledForDelay(15)).toBe(false);
   });
 });
 
@@ -316,7 +334,7 @@ describe("shouldStopDegradedPollingOnStatus", () => {
     ).toBe(false);
   });
 
-  it("stops degraded polling when connection_state is missing", () => {
+  it("does not stop degraded polling when connection_state is missing", () => {
     expect(
       shouldStopDegradedPollingOnStatus(
         {
@@ -326,7 +344,7 @@ describe("shouldStopDegradedPollingOnStatus", () => {
           message: null
         }
       )
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 

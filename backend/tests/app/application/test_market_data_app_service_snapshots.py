@@ -89,9 +89,11 @@ class FakeMassiveSnapshotClient:
 
 
 class FakeTradingDayCalendar:
-    def __init__(self, *, trading_day: bool) -> None:
+    def __init__(self, *, trading_day: bool, market_open: bool = False) -> None:
         self._trading_day = trading_day
+        self._market_open = market_open
         self.checked_dates: list[date] = []
+        self.checked_points: list[datetime] = []
         self.ensure_called = 0
 
     async def ensure_holiday_cache(self) -> None:
@@ -100,6 +102,10 @@ class FakeTradingDayCalendar:
     def is_trading_day(self, *, target_date: date) -> bool:
         self.checked_dates.append(target_date)
         return self._trading_day
+
+    def is_in_trading_session(self, *, point: datetime) -> bool:
+        self.checked_points.append(point)
+        return self._market_open
 
 
 class SnapshotDay:
@@ -212,6 +218,47 @@ async def test_list_snapshots_rejects_invalid_ticker() -> None:
 
     with pytest.raises(ValueError, match="MARKET_DATA_INVALID_TICKERS"):
         await service.list_snapshots(tickers=["AA-PL"])
+
+
+async def test_list_snapshots_resolves_unknown_market_status_from_delayed_calendar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FrozenUtcDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            if tz is None:
+                return cls(2026, 2, 24, 14, 55, 0)
+            return cls(2026, 2, 24, 14, 55, 0, tzinfo=tz)
+
+    monkeypatch.setattr(market_data_service_module, "datetime", FrozenUtcDateTime)
+    monkeypatch.setattr(market_data_service_module.settings, "market_stream_delay_minutes", 15)
+    calendar = FakeTradingDayCalendar(trading_day=True, market_open=True)
+    client = FakeMassiveSnapshotClient()
+    client.payload = [
+        {
+            "ticker": "AAPL",
+            "last": 203.12,
+            "change": -0.85,
+            "change_pct": -0.42,
+            "open": 204.01,
+            "high": 205.30,
+            "low": 201.98,
+            "volume": 48923112,
+            "updated_at": "2026-02-10T14:31:22Z",
+            "market_status": "unknown",
+            "source": "REST",
+        }
+    ]
+    service = MarketDataApplicationService(
+        uow=FakeUoW(),
+        massive_client=client,
+        trading_calendar=calendar,  # type: ignore[arg-type]
+    )
+
+    result = await service.list_snapshots(tickers=["AAPL"])
+
+    assert result[0].market_status == "open"
+    assert calendar.checked_points == [datetime(2026, 2, 24, 14, 40, 0, tzinfo=timezone.utc)]
 
 
 async def test_list_snapshots_rejects_too_many_unique_tickers() -> None:

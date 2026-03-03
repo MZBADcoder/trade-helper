@@ -19,6 +19,12 @@ from app.domain.auth.schemas import User
 from app.domain.watchlist.schemas import WatchlistItem
 
 
+@pytest.fixture(autouse=True)
+def _reset_stream_runtime_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "market_stream_realtime_enabled", True)
+    monkeypatch.setattr(settings, "market_stream_delay_minutes", 0)
+
+
 class FakeWsAuthService:
     def __init__(self, *, valid_token: str = "valid-token") -> None:
         self._valid_token = valid_token
@@ -221,7 +227,7 @@ def test_stream_status_reports_delayed_message_when_realtime_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "market_stream_realtime_enabled", False)
-    monkeypatch.setattr(settings, "market_stream_delay_minutes", 15)
+    monkeypatch.setattr(settings, "market_stream_delay_minutes", 0)
 
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     stream_hub._status_message = "delayed 15min"
@@ -335,7 +341,7 @@ def test_stream_allows_quote_channel_when_realtime_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "market_stream_realtime_enabled", False)
-    monkeypatch.setattr(settings, "market_stream_delay_minutes", 15)
+    monkeypatch.setattr(settings, "market_stream_delay_minutes", 0)
 
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
     with client:
@@ -377,6 +383,24 @@ def test_stream_enforces_symbol_limit_per_connection() -> None:
             assert error_payload["type"] == "system.error"
             assert error_payload["data"]["code"] == "STREAM_SUBSCRIPTION_LIMIT_EXCEEDED"
             assert stream_hub.subscription_calls == []
+
+
+def test_stream_rejects_connection_when_delay_mode_disables_ws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "market_stream_delay_minutes", 15)
+
+    client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])
+    with client:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(
+                _stream_path(),
+                headers=_bearer_ws_headers(token="valid-token"),
+            ) as websocket:
+                websocket.receive_json()
+        assert exc_info.value.code == 4410
+
+    assert stream_hub.registered_connections == set()
 
 
 def test_stream_pushes_quote_trade_aggregate_messages() -> None:
@@ -456,8 +480,8 @@ def test_stream_pushes_quote_trade_aggregate_messages() -> None:
 
 
 def test_stream_heartbeat_ack_follows_server_ping_window(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "market_stream_ping_interval_seconds", 0.2)
-    monkeypatch.setattr(settings, "market_stream_ping_timeout_seconds", 0.2)
+    monkeypatch.setattr(settings, "market_stream_ping_interval_seconds", 1.0)
+    monkeypatch.setattr(settings, "market_stream_ping_timeout_seconds", 1.0)
     monkeypatch.setattr(settings, "market_stream_ping_max_misses", 2)
 
     client, stream_hub = _build_stream_test_client(watchlist_symbols=["AAPL"])

@@ -80,6 +80,18 @@ export function streamStatusClass(status: StreamStatus): string {
   }
 }
 
+export function marketStatusLabel(
+  status: string | null | undefined,
+  params?: { websocketEnabled?: boolean }
+): string {
+  const normalized = (status ?? "").trim().toLowerCase();
+  if (!normalized) return "-";
+  if (normalized === "unknown" && params?.websocketEnabled === false) {
+    return "delayed";
+  }
+  return normalized;
+}
+
 export function shrinkText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 3)}...`;

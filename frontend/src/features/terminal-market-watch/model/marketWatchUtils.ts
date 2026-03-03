@@ -80,12 +80,16 @@ export type TradingDateRange = DateRange & {
 };
 
 export function resolveMarketRealtimeConfig(env: MarketRealtimeConfigEnv): MarketRealtimeConfig {
-  const delayMinutes = parsePositiveInt(env.delayMinutes, DEFAULT_MARKET_DELAY_MINUTES);
+  const delayMinutes = parseNonNegativeInt(env.delayMinutes, DEFAULT_MARKET_DELAY_MINUTES);
   return { delayMinutes };
 }
 
 export function streamChannelsForRealtime(): string[] {
   return STREAM_CHANNELS_REALTIME;
+}
+
+export function websocketEnabledForDelay(delayMinutes: number): boolean {
+  return Math.max(0, Math.trunc(delayMinutes)) === 0;
 }
 
 export function shouldIgnoreMarketMessage(message: StreamMarketMessage): boolean {
@@ -94,7 +98,7 @@ export function shouldIgnoreMarketMessage(message: StreamMarketMessage): boolean
 }
 
 export function shouldStopDegradedPollingOnStatus(message: StreamStatusMessage): boolean {
-  return message.connectionState === null || message.connectionState === "connected";
+  return message.connectionState === "connected";
 }
 
 export function isMarketStreamWindowOpen(params: {
@@ -482,14 +486,14 @@ function normalizeWsBaseUrl(raw: string | undefined): string | null {
   }
 }
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
+function parseNonNegativeInt(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   const normalized = value.trim();
   if (!/^\d+$/.test(normalized)) {
     return fallback;
   }
   const parsed = Number(normalized);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
     return fallback;
   }
   return parsed;

@@ -44,6 +44,7 @@ import {
   shouldStopDegradedPollingOnStatus,
   sortBars,
   streamChannelsForRealtime,
+  websocketEnabledForDelay,
   toMillis
 } from "./marketWatchUtils";
 import { parseStreamEnvelope, type StreamMarketMessage, type StreamStatusMessage } from "./streamProtocol";
@@ -63,6 +64,7 @@ const MARKET_REALTIME_CONFIG = resolveMarketRealtimeConfig({
 export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const { token, user } = useSession();
   const { delayMinutes } = MARKET_REALTIME_CONFIG;
+  const websocketEnabled = websocketEnabledForDelay(delayMinutes);
   const streamChannels = React.useMemo(() => streamChannelsForRealtime(), []);
 
   const [watchlist, setWatchlist] = React.useState<WatchlistItem[]>([]);
@@ -336,7 +338,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         mergeSnapshots(snapshots, "REST");
         setLastSyncAt(new Date().toISOString());
 
-        if (streamStatus !== "connected") {
+        if (!websocketEnabled || streamStatus !== "connected") {
           setStreamSource("REST");
           setDataLatency("delayed");
         }
@@ -344,7 +346,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         setLastError(error?.message ?? "Failed to refresh snapshots.");
       }
     },
-    [mergeSnapshots, streamStatus, token, watchlist]
+    [mergeSnapshots, streamStatus, token, watchlist, websocketEnabled]
   );
 
   const loadTickerDetail = React.useCallback(
@@ -827,6 +829,11 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         setLastError("当前为非交易时段（按延迟窗口），WS 已关闭。");
         return;
       }
+      if (event.code === 4410) {
+        setLastError("当前为延迟模式（delay > 0），WS 已禁用。");
+        setDegradedMode("idle");
+        return;
+      }
 
       setDegradedMode("reconnecting");
 
@@ -896,6 +903,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     if (!token) {
       manualCloseRef.current = true;
       closeStream();
+      stopDegradedPolling();
       setStreamStatus("idle");
       setStreamSource("REST");
       setDataLatency("delayed");
@@ -905,15 +913,27 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     if (!watchlist.length) {
       manualCloseRef.current = true;
       closeStream();
+      stopDegradedPolling();
       setStreamStatus("idle");
       setStreamSource("REST");
       setDataLatency("delayed");
       return;
     }
 
+    if (!websocketEnabled) {
+      manualCloseRef.current = true;
+      closeStream();
+      setLastError(null);
+      setDegradedMode("idle");
+      return () => {
+        stopDegradedPolling();
+      };
+    }
+
     if (!isTradingSessionOpen) {
       manualCloseRef.current = true;
       closeStream();
+      stopDegradedPolling();
       setStreamStatus("disconnected");
       setStreamSource("REST");
       setDataLatency("delayed");
@@ -927,7 +947,16 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       manualCloseRef.current = true;
       closeStream();
     };
-  }, [closeStream, connectStream, isTradingSessionOpen, token, watchlist.length]);
+  }, [
+    closeStream,
+    connectStream,
+    isTradingSessionOpen,
+    setDegradedMode,
+    stopDegradedPolling,
+    token,
+    watchlist.length,
+    websocketEnabled
+  ]);
 
   React.useEffect(() => {
     if (!watchlist.length || !token) {
@@ -1054,6 +1083,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     refreshSnapshots,
 
     streamStatus,
+    websocketEnabled,
     streamSource,
     dataLatency,
     delayMinutes,

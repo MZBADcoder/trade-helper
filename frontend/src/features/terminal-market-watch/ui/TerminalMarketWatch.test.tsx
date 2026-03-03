@@ -73,6 +73,7 @@ function createViewModel(
     loadMoreTickerHistory: vi.fn(async () => undefined),
     refreshSnapshots: vi.fn(async () => undefined),
     streamStatus: "connected",
+    websocketEnabled: true,
     streamSource: "REST",
     dataLatency: "delayed",
     delayMinutes: 15,
@@ -128,5 +129,31 @@ describe("TerminalMarketWatch", () => {
     render(<TerminalMarketWatch />);
 
     expect(screen.getAllByText("Delayed by 15 minutes").length).toBeGreaterThan(0);
+  });
+
+  it("shows REST-only stream state and delayed market status fallback when websocket is disabled", () => {
+    useTerminalMarketWatchMock.mockReturnValue(
+      createViewModel({
+        websocketEnabled: false,
+        activeSnapshot: {
+          ticker: "AAPL",
+          last: 200,
+          change: 1,
+          change_pct: 0.5,
+          open: 199,
+          high: 201,
+          low: 198,
+          volume: 1000,
+          updated_at: "2026-02-24T14:40:00Z",
+          market_status: "unknown",
+          source: "REST"
+        }
+      })
+    );
+
+    render(<TerminalMarketWatch />);
+
+    expect(screen.getAllByText("Stream: REST Only").length).toBeGreaterThan(0);
+    expect(screen.getByText("Market: delayed")).toBeTruthy();
   });
 });

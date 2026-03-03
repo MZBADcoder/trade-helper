@@ -17,6 +17,8 @@ from app.application.market_data.stream_hub import StockMarketStreamHub
 from app.application.market_data.stream_policy import (
     allowed_stream_channels,
     default_stream_channels,
+    normalized_delay_minutes,
+    websocket_stream_enabled,
 )
 from app.application.market_data.stream_session import MarketStreamSession, parse_stream_action
 from app.application.watchlist.service import WatchlistApplicationService
@@ -70,8 +72,18 @@ async def market_data_stream(
         await websocket.close(code=4401, reason="invalid token")
         return
 
+    configured_delay_minutes = normalized_delay_minutes(settings.market_stream_delay_minutes)
+    if not websocket_stream_enabled(delay_minutes=configured_delay_minutes):
+        logger.warning(
+            "market stream ws closing: client=%s code=4410 reason=ws disabled in delayed mode delay_minutes=%s",
+            client_address,
+            configured_delay_minutes,
+        )
+        await websocket.close(code=4410, reason="ws disabled in delayed mode")
+        return
+
     stream_session_open = await market_data_service.is_stream_session_open(
-        delay_minutes=settings.market_stream_delay_minutes,
+        delay_minutes=configured_delay_minutes,
     )
     if not stream_session_open:
         logger.warning(

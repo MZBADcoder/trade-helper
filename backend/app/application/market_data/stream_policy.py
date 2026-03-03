@@ -13,8 +13,15 @@ def default_stream_channels(*, realtime_enabled: bool) -> set[str]:
 
 
 def normalized_delay_minutes(delay_minutes: int) -> int:
-    return max(1, int(delay_minutes))
+    return max(0, int(delay_minutes))
+
+
+def websocket_stream_enabled(*, delay_minutes: int) -> bool:
+    return normalized_delay_minutes(delay_minutes) == 0
 
 
 def delayed_latency_message(*, delay_minutes: int) -> str:
-    return f"delayed {normalized_delay_minutes(delay_minutes)}min"
+    normalized = normalized_delay_minutes(delay_minutes)
+    if normalized == 0:
+        return "delayed"
+    return f"delayed {normalized}min"
