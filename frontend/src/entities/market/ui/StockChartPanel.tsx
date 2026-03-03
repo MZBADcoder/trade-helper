@@ -95,8 +95,8 @@ export function StockChartPanel({
     void onLoadMoreBefore();
   }, [bars.length, hasMoreBefore, historyCursor, isLoadingMoreBefore, onLoadMoreBefore, timeframe, windowStart]);
 
-  if (visibleBars.length < 2) {
-    return <div className="muted">Insufficient bars for chart rendering.</div>;
+  if (visibleBars.length === 0) {
+    return <div className="muted">No bars available for chart rendering.</div>;
   }
 
   return (

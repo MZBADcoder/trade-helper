@@ -60,6 +60,7 @@ class FakeMarketDataRepository:
 
         self.day_coverage: tuple[datetime, datetime] | None = None
         self.minute_coverage: tuple[datetime, datetime] | None = None
+        self.minute_agg_coverage: tuple[datetime, datetime] | None = None
 
         self.upserted_day: list[MarketBar] = []
         self.upserted_minute: list[MarketBar] = []
@@ -143,6 +144,15 @@ class FakeMarketDataRepository:
     async def get_minute_range_coverage(self, *, ticker: str) -> tuple[datetime, datetime] | None:
         _ = ticker
         return self.minute_coverage
+
+    async def get_minute_agg_range_coverage(
+        self,
+        *,
+        ticker: str,
+        multiplier: int,
+    ) -> tuple[datetime, datetime] | None:
+        _ = (ticker, multiplier)
+        return self.minute_agg_coverage
 
     async def upsert_day_bars(self, bars: list[MarketBar]) -> None:
         self.upserted_day.extend(bars)

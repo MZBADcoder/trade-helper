@@ -182,18 +182,17 @@ class StockMarketRealtimePublisher:
                 )
             )
             logger.warning(
-                (
-                    "MASSIVE_WS_ENTITLEMENT_MISSING: upstream denied websocket market-data entitlement "
-                    "(message=%s). Realtime stream will stay in delayed mode and rely on REST polling."
-                ),
-                message,
+                "MASSIVE_WS_ENTITLEMENT_MISSING: upstream denied websocket market-data entitlement. "
+                "Realtime stream will stay in delayed mode and rely on REST polling."
             )
             return
 
         latency = "real-time" if self._realtime_enabled and state == "connected" else "delayed"
-        status_message = message
-        if not self._realtime_enabled and state == "connected" and not status_message:
-            status_message = self._delayed_message
+        status_message = _public_status_message(
+            state=state,
+            realtime_enabled=self._realtime_enabled,
+            delayed_message=self._delayed_message,
+        )
         await self._event_publisher.publish(
             build_system_status(
                 latency=latency,
@@ -205,15 +204,19 @@ class StockMarketRealtimePublisher:
             await self._event_publisher.publish(
                 build_system_error(
                     code="STREAM_UPSTREAM_UNAVAILABLE",
-                    message=message or "upstream stream unavailable",
+                    message=_public_error_message(state=state),
                 )
+            )
+            logger.warning(
+                "Market realtime upstream status degraded: state=%s latency=%s",
+                state,
+                latency,
             )
             return
         logger.info(
-            "Market realtime upstream status: state=%s latency=%s message=%s",
+            "Market realtime upstream status: state=%s latency=%s",
             state,
             latency,
-            status_message,
         )
 
     async def _publish_reconcile_error(self) -> None:
@@ -256,3 +259,15 @@ def _is_realtime_entitlement_error(message: str | None) -> bool:
     if "real-time data" in normalized and ("don't have access" in normalized or "do not have access" in normalized):
         return True
     return False
+
+
+def _public_status_message(*, state: str, realtime_enabled: bool, delayed_message: str) -> str | None:
+    if state == "connected" and not realtime_enabled:
+        return delayed_message
+    return None
+
+
+def _public_error_message(*, state: str) -> str:
+    if state == "auth_failed":
+        return "upstream authentication failed"
+    return "upstream stream unavailable"

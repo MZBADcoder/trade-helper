@@ -247,6 +247,35 @@ def test_realtime_publisher_entitlement_error_degrades_without_unavailable_error
     asyncio.run(scenario())
 
 
+def test_realtime_publisher_sanitizes_upstream_error_message() -> None:
+    async def scenario() -> None:
+        upstream = FakeUpstreamClient()
+        publisher = FakeEventPublisher()
+        registry = FakeTopicRegistry()
+        service = StockMarketRealtimePublisher(
+            upstream_client=upstream,
+            event_publisher=publisher,
+            topic_registry=registry,
+            reconcile_interval_seconds=1,
+        )
+
+        raw_message = "upstream disconnected token=abc123 internal detail"
+        await service._handle_upstream_status("error", raw_message)
+
+        status_items = [item for item in publisher.published if item.get("type") == "system.status"]
+        error_items = [item for item in publisher.published if item.get("type") == "system.error"]
+
+        assert len(status_items) == 1
+        assert status_items[0]["data"]["connection_state"] == "error"
+        assert "message" not in status_items[0]["data"]
+
+        assert len(error_items) == 1
+        assert error_items[0]["data"]["message"] == "upstream stream unavailable"
+        assert raw_message not in str(error_items[0])
+
+    asyncio.run(scenario())
+
+
 def test_to_iso_datetime_handles_microseconds_timestamp() -> None:
     microseconds_value = 1_739_969_400_123_456
     expected = datetime.fromtimestamp(microseconds_value / 1_000_000, tz=timezone.utc)

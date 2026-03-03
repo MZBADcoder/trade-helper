@@ -24,6 +24,7 @@ from app.domain.market_data.aggregation import (
     aggregate_bucket,
     aggregate_minute_bars,
     market_trade_date,
+    resolve_bucket_bounds,
     resolve_current_open_bucket,
 )
 from app.domain.market_data.schemas import MarketBar, MarketSnapshot
@@ -439,7 +440,15 @@ class MarketDataApplicationService:
                 ticker=query.ticker,
                 multiplier=query.multiplier,
             )
-            if not _coverage_contains(coverage=agg_coverage, start_at=query.start_at, end_at=query.end_at):
+            agg_coverage_end_at = _minute_agg_coverage_end_at(
+                end_at=query.end_at,
+                multiplier=query.multiplier,
+            )
+            if not _coverage_contains(
+                coverage=agg_coverage,
+                start_at=query.start_at,
+                end_at=agg_coverage_end_at,
+            ):
                 minute_bars = await repo.list_minute_bars(
                     ticker=query.ticker,
                     start_at=query.start_at,
@@ -769,6 +778,11 @@ def _coverage_contains(
     if coverage is None:
         return False
     return coverage[0] <= start_at and coverage[1] >= end_at
+
+
+def _minute_agg_coverage_end_at(*, end_at: datetime, multiplier: int) -> datetime:
+    bucket_start, _ = resolve_bucket_bounds(point=end_at, multiplier=multiplier)
+    return bucket_start
 
 
 def _ranges_intersect(

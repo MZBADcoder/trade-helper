@@ -31,6 +31,19 @@ function createBars(count: number): MarketBar[] {
 }
 
 describe("StockChartPanel", () => {
+  it("renders chart when only one bar is available", () => {
+    const bars = createBars(1);
+    const indicators = buildIndicators(bars);
+
+    const { unmount } = render(<StockChartPanel ticker="AAPL" timeframe="1m" bars={bars} indicators={indicators} />);
+
+    expect(screen.getByText("AAPL Price / MA / BOLL")).toBeTruthy();
+    expect(screen.getByText("Bars 1")).toBeTruthy();
+    expect(screen.queryByText("Insufficient bars for chart rendering.")).toBeNull();
+
+    unmount();
+  });
+
   it("supports + / - zoom levels", () => {
     const bars = createBars(1200);
     const indicators = buildIndicators(bars);
