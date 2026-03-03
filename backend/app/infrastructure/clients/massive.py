@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable, Mapping
-import re
 from typing import Any
 
 try:
@@ -60,54 +59,6 @@ class MassiveClient:
     async def get_market_status(self) -> dict[str, Any]:
         return await asyncio.to_thread(self._get_market_status_sync)
 
-    async def list_options_expirations(
-        self,
-        *,
-        underlying: str,
-        limit: int,
-        include_expired: bool,
-    ) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(
-            self._list_options_expirations_sync,
-            underlying=underlying,
-            limit=limit,
-            include_expired=include_expired,
-        )
-
-    async def list_options_chain(
-        self,
-        *,
-        underlying: str,
-        expiration: str,
-        strike_from: float | None,
-        strike_to: float | None,
-        option_type: str,
-        limit: int,
-        cursor: str | None,
-    ) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            self._list_options_chain_sync,
-            underlying=underlying,
-            expiration=expiration,
-            strike_from=strike_from,
-            strike_to=strike_to,
-            option_type=option_type,
-            limit=limit,
-            cursor=cursor,
-        )
-
-    async def get_options_contract(
-        self,
-        *,
-        option_ticker: str,
-        include_greeks: bool,
-    ) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            self._get_options_contract_sync,
-            option_ticker=option_ticker,
-            include_greeks=include_greeks,
-        )
-
     def _list_aggs_sync(
         self,
         *,
@@ -152,105 +103,6 @@ class MassiveClient:
         raw = self._call_first_supported(candidates)
         normalized = _to_dict(raw)
         return normalized if normalized is not None else {}
-
-    def _list_options_expirations_sync(
-        self,
-        *,
-        underlying: str,
-        limit: int,
-        include_expired: bool,
-    ) -> list[dict[str, Any]]:
-        candidates = (
-            (
-                "list_options_contracts",
-                {
-                    "underlying_ticker": underlying,
-                    "expired": str(include_expired).lower(),
-                    "limit": limit,
-                },
-            ),
-            (
-                "list_options_contracts",
-                {
-                    "underlying_ticker": underlying,
-                    "expired": include_expired,
-                    "limit": limit,
-                },
-            ),
-        )
-        raw = self._call_first_supported(candidates)
-        return self._normalize_result_list(raw)
-
-    def _list_options_chain_sync(
-        self,
-        *,
-        underlying: str,
-        expiration: str,
-        strike_from: float | None,
-        strike_to: float | None,
-        option_type: str,
-        limit: int,
-        cursor: str | None,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "underlying_ticker": underlying,
-            "expiration_date": expiration,
-            "limit": limit,
-        }
-        if strike_from is not None:
-            payload["strike_price_gte"] = strike_from
-        if strike_to is not None:
-            payload["strike_price_lte"] = strike_to
-        if option_type in {"call", "put"}:
-            payload["contract_type"] = option_type
-        candidates: list[tuple[str, dict[str, Any]]] = []
-        if cursor:
-            candidates.append(
-                (
-                    "list_options_contracts",
-                    {
-                        **payload,
-                        "params": {
-                            "cursor": cursor,
-                        },
-                    },
-                )
-            )
-            candidates.append(
-                (
-                    "list_options_contracts",
-                    {
-                        **payload,
-                        "cursor": cursor,
-                    },
-                )
-            )
-        else:
-            candidates.append(("list_options_contracts", payload))
-
-        raw = self._call_first_supported(candidates)
-        if isinstance(raw, dict):
-            return raw
-        return {"results": self._normalize_result_list(raw), "next_url": None}
-
-    def _get_options_contract_sync(
-        self,
-        *,
-        option_ticker: str,
-        include_greeks: bool,
-    ) -> dict[str, Any]:
-        _ = include_greeks
-        underlying = _extract_underlying_from_option_ticker(option_ticker)
-        candidates = (
-            ("get_options_contract", {"ticker": option_ticker}),
-            ("get_option_contract", {"option_ticker": option_ticker}),
-            ("get_snapshot_option", {"underlying_asset": underlying, "option_contract": option_ticker}),
-            ("get_snapshot_option", {"ticker": option_ticker}),
-        )
-        raw = self._call_first_supported(candidates)
-        if isinstance(raw, dict):
-            return raw
-        return {"results": [raw]}
 
     def _call_first_supported(
         self,
@@ -304,14 +156,3 @@ def _to_dict(raw: Any) -> dict[str, Any] | None:
     if hasattr(raw, "__dict__"):
         return vars(raw)
     return None
-
-
-_OPTION_TICKER_RE = re.compile(r"^O:([A-Z.]+)")
-
-
-def _extract_underlying_from_option_ticker(option_ticker: str) -> str:
-    normalized = option_ticker.strip().upper()
-    matched = _OPTION_TICKER_RE.match(normalized)
-    if matched:
-        return matched.group(1)
-    return normalized

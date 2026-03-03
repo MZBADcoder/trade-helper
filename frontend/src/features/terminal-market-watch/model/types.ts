@@ -29,11 +29,6 @@ export type DetailSnapshot = {
   barsDataSource: string | null;
 };
 
-export type ExpirationItem = {
-  date: string;
-  days_to_expiration: number;
-};
-
 export type TimeframeOption = {
   key: TimeframeKey;
   label: string;

@@ -725,76 +725,6 @@ pre {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.optionsPanel .panelBody {
-  display: grid;
-  gap: 12px;
-}
-
-.optionsControlRow {
-  display: grid;
-  gap: 6px;
-}
-
-.selectInput {
-  padding-right: 36px;
-}
-
-.optionsTableWrap {
-  max-height: 340px;
-}
-
-.optionsChainTable th,
-.optionsChainTable td {
-  white-space: nowrap;
-}
-
-.optionsRowActive {
-  background: rgba(89, 214, 176, 0.14);
-}
-
-.chainTickerBtn {
-  border: none;
-  background: transparent;
-  color: #d5e4fa;
-  font-family: var(--mono);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-  letter-spacing: 0.05em;
-}
-
-.chainTickerBtn:hover {
-  color: #7ad8bc;
-}
-
-.fieldFallback {
-  color: #9db2d7;
-  border-bottom: 1px dashed rgba(148, 168, 202, 0.5);
-  cursor: help;
-}
-
-.optionContractCard {
-  border: 1px solid var(--line-soft);
-  border-radius: 12px;
-  background: var(--surface-strong);
-  padding: 10px;
-  display: grid;
-  gap: 10px;
-}
-
-.optionContractHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.optionMetricGrid {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .statusBarPanel .panelBody {
   padding-top: 12px;
   padding-bottom: 12px;
@@ -1149,10 +1079,6 @@ pre {
   .terminalV2Grid {
     grid-template-columns: 320px minmax(0, 1fr);
   }
-
-  .optionsPanel {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 1180px) {
@@ -1165,10 +1091,6 @@ pre {
   }
 
   .metricRowV2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .optionMetricGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1212,10 +1134,6 @@ pre {
   }
 
   .metricRowV2 {
-    grid-template-columns: 1fr;
-  }
-
-  .optionMetricGrid {
     grid-template-columns: 1fr;
   }
 

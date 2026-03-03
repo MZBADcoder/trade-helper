@@ -4,20 +4,18 @@
 
 在 PRD 与后端能力明确后，定义页面信息架构、视觉方向与交互原型。
 
-## 执行状态更新（2026-02-16）
+## 执行状态更新（2026-03-03）
 
-- 当前迭代前端优先完成 Stock 数据主线体验（watchlist/snapshots/bars/状态与降级）。
-- options 相关前端开发进入 HOLD（交互细化、联调、E2E 场景）。
-- 恢复条件：Stock 主线里程碑完成后，再恢复 options 前端开发。
+- 当前迭代聚焦股票主线体验（watchlist / detail / status）。
+- 非股票扩展设计内容已从当前范围移除。
 
 ## 清单
 
-- 原型 V1（home/login/terminal/demo，对应 PRD-0001 行情观察）
-  - `/Users/mz/pmf/trader-helper/docs/frontend-design/prototype-v1.md`
-- 原型 V2（market-watch 增量设计：实时状态、期权链、降级策略）
+- 原型 V1（home/login/terminal/demo）
+  - `docs/frontend-design/prototype-v1.md`
+- 原型 V2（market-watch 增量设计：实时状态、降级策略）
   - `docs/frontend-design/prototype-v2-market-watch.md`
-  - 备注：已补充 `/demo` 后端 mock 回放终端的交互约束
-- E2E 设计（基于 PRD-0001 + BE-0001/0002/0003 + V2 原型）
+- E2E 设计（基于 PRD-0001 + BE 文档 + V2 原型）
   - `docs/frontend-design/E2E-0001-prd-0001-market-watch-playwright-test-design.md`
 
 ## 约定

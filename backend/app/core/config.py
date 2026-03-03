@@ -36,7 +36,6 @@ class Settings(BaseSettings):
     market_stream_realtime_enabled: bool = True
     market_stream_delay_minutes: int = 15
     market_stream_gateway_instance_id: str | None = None
-    options_data_enabled: bool = False
     demo_endpoints_enabled: bool = False
 
     postgres_db: str = "trader_helper"

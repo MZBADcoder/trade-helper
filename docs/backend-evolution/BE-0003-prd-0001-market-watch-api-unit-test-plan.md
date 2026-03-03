@@ -1,141 +1,48 @@
-# BE-0003 - PRD-0001 新增/修改接口 Unit Test 设计（基于 BE-0002/BE-0005）
+# BE-0003 - PRD-0001 API 层单测计划（股票主线）
 
-## 0. 执行状态更新（2026-02-19）
+## 1. 目标
 
-- 当前迭代继续优先 Stock 主线 API 测试；options API 测试仍为 HOLD。
-- `GET /api/v1/market-data/bars` 已接入 BE-0005 混合策略的 header 语义：
-  - `X-Data-Source` 支持 `REST|DB|DB_AGG|DB_AGG_MIXED`
-  - `X-Partial-Range` 保留 `true|false`
-- API 测试已覆盖最小回归路径（snapshots 成功/限额、bars symbol 二选一、bars header 枚举）。
-- WS 协议测试已落地：鉴权失败 close code、watchlist 权限、订阅上限与三类股票消息推送。
+为股票主线 API 提供稳定的参数校验、错误映射与主路径覆盖。
 
-## 1. 目标与范围
+## 2. 覆盖范围
 
-本文定义 API 层（FastAPI `api/v1/endpoints/*`）unit test 设计，覆盖：
+- `GET /api/v1/market-data/snapshots`
+- `GET /api/v1/market-data/bars`
+- `GET /api/v1/market-data/trading-days`
+- `WS /api/v1/market-data/stream`（协议基础行为）
 
-- 新增 REST：
-  - `GET /api/v1/market-data/snapshots`
-  - `GET /api/v1/options/expirations`（HOLD）
-  - `GET /api/v1/options/chain`（HOLD）
-  - `GET /api/v1/options/contracts/{option_ticker}`（HOLD）
-- 修改 REST：
-  - `GET /api/v1/market-data/bars`（参数校验、symbol 二选一、header 语义）
-- 新增 WS：
-  - `WS /api/v1/market-data/stream`（已实现并纳入回归）
+## 3. 重点用例
 
-约定：
+### 3.1 snapshots
 
-- 不触达真实 Massive/Redis/DB
-- 通过 dependency override 注入 fake service（具体类）
-- 重点验证：入参校验、错误码映射、DTO 映射、header 合同
+- 空 tickers 与非法 ticker 拦截
+- ticker 去重与上限 50
+- 正常返回 payload 映射
 
-## 2. 现有测试基线（已落地）
+### 3.2 bars
 
-测试文件：
+- 缺失 ticker 拦截
+- 非法 ticker 格式拦截
+- 非法 timespan/session/range 拦截
+- 正常路径返回 `X-Data-Source` / `X-Partial-Range`
 
-- `backend/tests/app/api/test_market_data_endpoints.py`
-- `backend/tests/app/api/test_market_data_stream_endpoint.py`
+### 3.3 trading-days
 
-已覆盖：
+- 参数透传与默认值验证
+- 返回 ISO 日期列表
 
-- `test_snapshots_returns_contract_payload`
-- `test_snapshots_rejects_too_many_tickers`
-- `test_bars_requires_exactly_one_symbol`
-- `test_bars_success_sets_contract_headers`
+### 3.4 stream
 
-辅助夹具：
+- 未鉴权关闭
+- subscribe/unsubscribe 成功
+- 心跳超时关闭与恢复
 
-- `backend/tests/app/api/conftest.py` 中 `FakeMarketDataService.list_bars_with_meta`
+## 4. 不在本次范围
 
-## 3. 分层建议
+- 非股票扩展 API 测试（已从项目范围移除）
 
-### 3.1 API Handler 级 unit tests（优先）
+## 5. 验收
 
-- 覆盖入参校验、错误映射、header 与 DTO
-- fake service 不出网、不触库
-
-### 3.2 合同级 API tests（可选增强）
-
-- 用 ASGI client 验证 query/path 解析行为（`alias="from"`、日期格式、limit 上限）
-- 对未来错误码细化变更更敏感
-
-### 3.3 WS 协议 tests（现状 + 待补）
-
-- 已覆盖：
-  - 鉴权失败 close code（`4401`）
-  - 订阅权限错误码（`STREAM_SYMBOL_NOT_ALLOWED`）
-  - 订阅上限错误码（`STREAM_SUBSCRIPTION_LIMIT_EXCEEDED`）
-  - `market.quote` / `market.trade` / `market.aggregate` 推送
-- 待补：
-  - 心跳超时关闭语义（`4408`）
-
-## 4. 接口测试清单（更新版）
-
-### 4.1 `GET /api/v1/market-data/snapshots`
-
-成功路径：
-
-- `tickers=AAPL,NVDA` 返回 `200` + `items[*]` 字段完整
-
-参数校验：
-
-- 空 `tickers`
-- 非法 ticker
-- 去重后 > 50
-
-错误映射：
-
-- `MARKET_DATA_RATE_LIMITED` -> `429`
-- `MARKET_DATA_UPSTREAM_UNAVAILABLE` -> `502`
-
-### 4.2 `GET /api/v1/options/expirations`（HOLD）
-
-- 保留原计划，待 Stock 主线里程碑后恢复
-
-### 4.3 `GET /api/v1/options/chain`（HOLD）
-
-- 保留原计划，待 Stock 主线里程碑后恢复
-
-### 4.4 `GET /api/v1/options/contracts/{option_ticker}`（HOLD）
-
-- 保留原计划，待 Stock 主线里程碑后恢复
-
-### 4.5 `GET /api/v1/market-data/bars`（BE-0005 对齐）
-
-成功路径：
-
-- `ticker` 路径与 `option_ticker` 路径均可用
-- 返回 `X-Data-Source`、`X-Partial-Range`
-
-header 合同：
-
-- `X-Data-Source ∈ {REST, DB, DB_AGG, DB_AGG_MIXED}`
-- `X-Partial-Range ∈ {true, false}`
-
-参数校验（重点）：
-
-- `timespan` 非法 -> `400 MARKET_DATA_INVALID_TIMESPAN`
-- `multiplier` 越界 -> `400 MARKET_DATA_INVALID_RANGE`
-- `from >= to` -> `400 MARKET_DATA_INVALID_RANGE`
-- 缺失 symbol -> `400 MARKET_DATA_SYMBOL_REQUIRED`
-- `ticker` 与 `option_ticker` 同时出现 -> `400 MARKET_DATA_SYMBOL_CONFLICT`
-- 超大窗口 -> `413 MARKET_DATA_RANGE_TOO_LARGE`
-
-错误映射：
-
-- 上游不可用 -> `502 MARKET_DATA_UPSTREAM_UNAVAILABLE`
-
-## 5. 下一轮补测优先级
-
-1. 先补 `bars` 参数校验未覆盖项（非法 timespan、非法 multiplier、from/to 反序、413 场景）。
-2. 再补 `snapshots` 的非法 ticker 与上游错误映射。
-3. HOLD 解除后恢复 `options/*` API 单测。
-4. 最后补 `WS /market-data/stream` 的心跳超时（`4408`）与异常中断恢复语义测试。
-
-## 6. 完成标准
-
-- `market-data/snapshots` 与 `market-data/bars` 覆盖成功路径 + 关键失败路径
-- `bars` header 合同（含 `DB_AGG_MIXED`）有稳定断言
-- `WS /market-data/stream` 覆盖鉴权、权限、上限与三类股票消息推送
-- options 当前阶段不回归；扩展覆盖待 HOLD 解除后补齐
-- 测试代码保持 No Interfaces（不引入 `Protocol/ABC`）
+- [ ] API 层主路径测试通过
+- [ ] 参数失败分支测试通过
+- [ ] WS 基础协议测试通过

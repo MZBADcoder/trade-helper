@@ -47,7 +47,7 @@
 ## 3. Contract Details
 
 - Request schema changes:
-  - 对外参数不变（`ticker/option_ticker`、`timespan`、`multiplier`、`from/to`、`limit`）。
+  - 对外参数不变（`ticker`、`timespan`、`multiplier`、`from/to`、`limit`）。
   - PMF 阶段内部实现仅承诺 minute 的 `1/5/15/60` 聚合路径；其它倍率走兜底路径（可开关）。
 - Response schema changes:
   - Body 不变。

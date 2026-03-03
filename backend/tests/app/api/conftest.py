@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_current_user, get_market_data_service, get_options_service
+from app.api.deps import get_current_user, get_market_data_service
 from app.api.errors import install_api_error_handlers
 from app.api.v1.router import api_router
 from app.domain.auth.schemas import User
@@ -35,84 +35,6 @@ class FakeBarsResult:
     bars: list[MarketBar]
     data_source: str
     partial_range: bool
-
-
-@dataclass(slots=True)
-class FakeOptionExpiration:
-    date: str
-    days_to_expiration: int
-    contract_count: int
-
-
-@dataclass(slots=True)
-class FakeOptionExpirationsResult:
-    underlying: str
-    expirations: list[FakeOptionExpiration]
-    source: str
-    updated_at: datetime
-
-
-@dataclass(slots=True)
-class FakeOptionChainItem:
-    option_ticker: str
-    option_type: str
-    strike: float
-    bid: float
-    ask: float
-    last: float
-    iv: float
-    volume: int
-    open_interest: int
-    updated_at: datetime
-    source: str
-
-
-@dataclass(slots=True)
-class FakeOptionChainResult:
-    underlying: str
-    expiration: str
-    items: list[FakeOptionChainItem]
-    next_cursor: str | None
-
-
-@dataclass(slots=True)
-class FakeOptionQuote:
-    bid: float
-    ask: float
-    last: float
-    updated_at: datetime
-
-
-@dataclass(slots=True)
-class FakeOptionSession:
-    open: float
-    high: float
-    low: float
-    volume: int
-    open_interest: int
-
-
-@dataclass(slots=True)
-class FakeOptionGreeks:
-    delta: float
-    gamma: float
-    theta: float
-    vega: float
-    iv: float
-
-
-@dataclass(slots=True)
-class FakeOptionContract:
-    option_ticker: str
-    underlying: str
-    expiration: str
-    option_type: str
-    strike: float
-    multiplier: int
-    quote: FakeOptionQuote
-    session: FakeOptionSession
-    greeks: FakeOptionGreeks | None
-    source: str
 
 
 class FakeMarketDataService:
@@ -225,92 +147,6 @@ class FakeMarketDataService:
         return [base]
 
 
-class FakeOptionsService:
-    async def list_expirations(
-        self,
-        *,
-        underlying: str,
-        limit: int = 12,
-        include_expired: bool = False,
-    ) -> FakeOptionExpirationsResult:
-        _ = (limit, include_expired)
-        return FakeOptionExpirationsResult(
-            underlying=underlying,
-            expirations=[
-                FakeOptionExpiration(
-                    date="2026-02-21",
-                    days_to_expiration=11,
-                    contract_count=184,
-                )
-            ],
-            source="REST",
-            updated_at=datetime(2026, 2, 10, 14, 32, 10, tzinfo=timezone.utc),
-        )
-
-    async def list_chain(
-        self,
-        *,
-        underlying: str,
-        expiration: str,
-        strike_from: float | None = None,
-        strike_to: float | None = None,
-        option_type: str = "all",
-        limit: int = 200,
-        cursor: str | None = None,
-    ) -> FakeOptionChainResult:
-        _ = (strike_from, strike_to, option_type, limit, cursor)
-        return FakeOptionChainResult(
-            underlying=underlying,
-            expiration=expiration,
-            items=[
-                FakeOptionChainItem(
-                    option_ticker="O:AAPL260221C00210000",
-                    option_type="call",
-                    strike=210.0,
-                    bid=1.23,
-                    ask=1.28,
-                    last=1.25,
-                    iv=0.312,
-                    volume=1532,
-                    open_interest=10421,
-                    updated_at=datetime(2026, 2, 10, 14, 33, 2, tzinfo=timezone.utc),
-                    source="REST",
-                )
-            ],
-            next_cursor="eyJvZmZzZXQiOjIwMH0=",
-        )
-
-    async def get_contract(self, *, option_ticker: str, include_greeks: bool = True) -> FakeOptionContract:
-        greeks = (
-            FakeOptionGreeks(delta=0.45, gamma=0.03, theta=-0.08, vega=0.11, iv=0.312)
-            if include_greeks
-            else None
-        )
-        return FakeOptionContract(
-            option_ticker=option_ticker,
-            underlying="AAPL",
-            expiration="2026-02-21",
-            option_type="call",
-            strike=210.0,
-            multiplier=100,
-            quote=FakeOptionQuote(
-                bid=1.23,
-                ask=1.28,
-                last=1.25,
-                updated_at=datetime(2026, 2, 10, 14, 33, 2, tzinfo=timezone.utc),
-            ),
-            session=FakeOptionSession(
-                open=1.51,
-                high=1.58,
-                low=1.11,
-                volume=1532,
-                open_interest=10421,
-            ),
-            greeks=greeks,
-            source="REST",
-        )
-
-
 def fake_user() -> User:
     now = datetime(2026, 2, 10, 14, 0, 0, tzinfo=timezone.utc)
     return User(
@@ -329,20 +165,13 @@ def market_data_service() -> FakeMarketDataService:
 
 
 @pytest.fixture
-def options_service() -> FakeOptionsService:
-    return FakeOptionsService()
-
-
-@pytest.fixture
 def api_client(
     market_data_service: FakeMarketDataService,
-    options_service: FakeOptionsService,
 ) -> Generator[TestClient, None, None]:
     app = FastAPI()
     install_api_error_handlers(app)
     app.include_router(api_router, prefix="/api/v1")
     app.dependency_overrides[get_current_user] = fake_user
     app.dependency_overrides[get_market_data_service] = lambda: market_data_service
-    app.dependency_overrides[get_options_service] = lambda: options_service
     with TestClient(app) as client:
         yield client

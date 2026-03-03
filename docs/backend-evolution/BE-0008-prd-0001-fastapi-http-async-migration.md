@@ -62,7 +62,6 @@
   - `auth`
   - `watchlist`
   - `market-data`
-  - `options`
   - `demo`
   - `health`
 - WebSocket 链路已移除对同步 service 的 `run_in_threadpool` 依赖，直接 await 异步认证与 watchlist 查询

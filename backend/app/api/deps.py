@@ -9,7 +9,6 @@ from app.application.auth.service import AuthApplicationService
 from app.application.demo_market.service import DemoMarketDataApplicationService
 from app.application.market_data.service import MarketDataApplicationService
 from app.application.market_data.stream_hub import StockMarketStreamHub
-from app.application.options.service import OptionsApplicationService
 from app.application.watchlist.service import WatchlistApplicationService
 from app.domain.auth.schemas import User
 
@@ -26,11 +25,6 @@ def get_demo_market_data_service() -> DemoMarketDataApplicationService:
 
 def get_watchlist_service() -> WatchlistApplicationService:
     return container.build_watchlist_service()
-
-
-def get_options_service() -> OptionsApplicationService:
-    return container.build_options_service()
-
 
 def get_auth_service() -> AuthApplicationService:
     return container.build_auth_service()

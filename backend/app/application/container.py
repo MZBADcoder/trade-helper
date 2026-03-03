@@ -15,7 +15,6 @@ from app.application.market_data.stream_policy import (
     normalized_delay_minutes,
 )
 from app.application.market_data.trading_calendar import TradingCalendar
-from app.application.options.service import OptionsApplicationService
 from app.application.watchlist.service import WatchlistApplicationService
 from app.core.config import settings
 from app.infrastructure.auth.login_throttle import RedisAuthLoginThrottle
@@ -71,14 +70,6 @@ def build_watchlist_service() -> WatchlistApplicationService:
         uow=build_uow(),
         market_data_service=build_market_data_service(),
     )
-
-
-def build_options_service() -> OptionsApplicationService:
-    return OptionsApplicationService(
-        massive_client=_massive_client(),
-        enabled=settings.options_data_enabled,
-    )
-
 
 @lru_cache
 def _auth_login_throttle() -> RedisAuthLoginThrottle:

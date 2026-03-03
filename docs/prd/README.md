@@ -1,4 +1,4 @@
-# PRD Index
+# PRD 索引
 
 ## 规则
 
@@ -8,10 +8,8 @@
 
 ## 清单
 
-- `PRD-0001` 实时行情 / 数据观察（Stocks + Options，Massive.com，Web Terminal MVP）
-  - `/Users/mz/pmf/trader-helper/docs/prd/PRD-0001-market-watch.md`
-- `PRD-0002` IV Percentile 告警（Massive.com，美股期权，暂缓：待后续 thread）
-  - `/Users/mz/pmf/trader-helper/docs/prd/PRD-0002-iv-percentile-alerts.md`
+- `PRD-0001` 实时行情 / 数据观察（Stocks，Massive.com，Web Terminal MVP）
+  - `docs/prd/PRD-0001-market-watch.md`
 
 ## 写作要求
 
@@ -29,4 +27,4 @@ PRD 冻结后，下一步产出：
 
 ## 模板
 
-- `/Users/mz/pmf/trader-helper/docs/prd/TEMPLATE.md`
+- `docs/prd/TEMPLATE.md`

@@ -15,7 +15,6 @@ from app.application.market_data.policy import (
 )
 
 _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
-_OPTION_TICKER_PATTERN = re.compile(r"^O:[A-Z0-9]{1,32}$")
 _SUPPORTED_SESSIONS = {"regular", "pre", "night"}
 
 
@@ -43,7 +42,6 @@ class MarketTradingDaysRequest:
 
 def parse_market_bars_request(
     ticker: str | None = None,
-    option_ticker: str | None = None,
     timespan: str = "day",
     multiplier: int = 1,
     session: str = "regular",
@@ -51,11 +49,8 @@ def parse_market_bars_request(
     to_date: date | None = Query(None, alias="to"),
     limit: int | None = Query(None, ge=1, le=5000),
 ) -> MarketBarsRequest:
-    symbol = _resolve_symbol(ticker=ticker, option_ticker=option_ticker)
-    _validate_market_symbol(
-        symbol=symbol,
-        is_option_ticker=bool(option_ticker and option_ticker.strip()),
-    )
+    symbol = _resolve_symbol(ticker=ticker)
+    _validate_market_symbol(symbol=symbol)
     normalized_timespan = normalize_timespan(timespan)
     if not is_supported_timespan(normalized_timespan):
         raise_api_error(
@@ -138,32 +133,17 @@ def parse_market_trading_days_request(
     )
 
 
-def _resolve_symbol(*, ticker: str | None, option_ticker: str | None) -> str:
-    if ticker and option_ticker:
-        raise_api_error(
-            status_code=400,
-            code="MARKET_DATA_SYMBOL_CONFLICT",
-            message="ticker and option_ticker cannot be provided together",
-        )
-    if not ticker and not option_ticker:
+def _resolve_symbol(*, ticker: str | None) -> str:
+    if not ticker:
         raise_api_error(
             status_code=400,
             code="MARKET_DATA_SYMBOL_REQUIRED",
-            message="ticker or option_ticker is required",
+            message="ticker is required",
         )
-    return (ticker or option_ticker or "").strip().upper()
+    return ticker.strip().upper()
 
 
-def _validate_market_symbol(*, symbol: str, is_option_ticker: bool) -> None:
-    if is_option_ticker:
-        if _OPTION_TICKER_PATTERN.fullmatch(symbol):
-            return
-        raise_api_error(
-            status_code=400,
-            code="MARKET_DATA_INVALID_SYMBOL",
-            message="option_ticker format is invalid",
-        )
-
+def _validate_market_symbol(*, symbol: str) -> None:
     if _TICKER_PATTERN.fullmatch(symbol):
         return
     raise_api_error(

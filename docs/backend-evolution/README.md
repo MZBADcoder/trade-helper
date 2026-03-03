@@ -4,11 +4,10 @@
 
 将 PRD 拆分为后端可执行项，聚焦接口、数据模型、任务流程与交付顺序。
 
-## 执行状态更新（2026-02-16）
+## 执行状态更新（2026-03-03）
 
-- 当前迭代策略：先完成 Stock 数据主线（market-data/snapshots/bars/stock realtime 相关工作）。
-- 期权后端相关开发进入 HOLD（包括 options 能力扩展与新增测试补齐）。
-- 恢复条件：Stock 数据主线里程碑完成并验收通过后，再恢复 options 后端开发。
+- 当前主线：股票数据能力（watchlist / snapshots / bars / stock stream）。
+- 非股票扩展后端文档内容已清理，不纳入当前迭代范围。
 
 ## 文件约定
 
@@ -26,28 +25,14 @@
 
 ## 清单
 
-- `BE-0001` 对 PRD-0001 的后端接口演进拆分（实时行情 / 数据观察）
-  - `/Users/mz/pmf/trader-helper/docs/backend-evolution/BE-0001-prd-0001-market-watch-api-breakdown.md`
-  - 备注：`PRD-0002`（IV）相关拆分延后到下一个 thread
-- `BE-0002` 对 PRD-0001 的接口合同细化（REST/WS 字段与错误码）
-  - `docs/backend-evolution/BE-0002-prd-0001-market-watch-api-contract-v1.md`
-  - 备注：仅定义合同，不含实现代码；其中 options 合同当前阶段为 HOLD 预留
-- `BE-0003` 对 PRD-0001 新增/修改接口的 Unit Test 设计（覆盖 BE-0002 合同）
-  - `docs/backend-evolution/BE-0003-prd-0001-market-watch-api-unit-test-plan.md`
-  - 备注：以 “API 层单测 + 可选合同测试 + WS 协议测试” 分层描述；WS 协议基础测试已落地，options API 测试当前阶段 HOLD
-- `BE-0004` 对 PRD-0001 `market_data + options` application service 的 Unit Test 设计（TDD 第一阶段）
-  - `docs/backend-evolution/BE-0004-prd-0001-market-data-snapshots-app-service-unit-test-plan.md`
-  - 备注：统一列出两个 service 全部公有方法的最小测试方法与扩展用例；options 扩展项当前阶段 HOLD
-- `BE-0005` 对 PRD-0001 `market-data/bars` 混合拉取策略设计（day/minute 分表、minute 按交易日分区、5/15/60 预聚合 + 未完结实时补算）
-  - `docs/backend-evolution/BE-0005-prd-0001-market-data-hybrid-fetch-strategy.md`
-  - 备注：`bars` 查询/聚合不使用 Redis 缓存；WS 实时广播使用 Redis Pub/Sub
-- `BE-0007` 对 PRD-0001 `/demo` 路由的后端 mock 回放入口拆分
-  - `docs/backend-evolution/BE-0007-prd-0001-demo-mock-replay-entry.md`
-  - 备注：固定 `AMD` + 最近已完成交易日 `10:00-10:30 ET` 回放窗口；免登录，不接 Massive
-- `BE-0008` 对 PRD-0001 的 FastAPI HTTP 异步化迁移说明
-  - `docs/backend-evolution/BE-0008-prd-0001-fastapi-http-async-migration.md`
-  - 备注：在线 HTTP、AsyncSession、Redis 登录限流、Celery async bridge 与 `/demo` HTTP 已统一到异步主链路
+- `BE-0001`：PRD-0001 后端接口拆分（股票主线）
+- `BE-0002`：PRD-0001 接口合同细化（REST/WS 字段与错误码）
+- `BE-0003`：PRD-0001 API 层测试计划
+- `BE-0004`：PRD-0001 application service 测试计划
+- `BE-0005`：`market-data/bars` 混合拉取与聚合策略
+- `BE-0007`：`/demo` mock 回放入口
+- `BE-0008`：FastAPI HTTP 异步化迁移
 
 ## 模板
 
-- `/Users/mz/pmf/trader-helper/docs/backend-evolution/TEMPLATE.md`
+- `docs/backend-evolution/TEMPLATE.md`

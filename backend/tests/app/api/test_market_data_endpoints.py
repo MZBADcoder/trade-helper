@@ -25,21 +25,11 @@ def test_snapshots_rejects_too_many_tickers(api_client) -> None:
     assert payload["error"]["code"] == "MARKET_DATA_TOO_MANY_TICKERS"
 
 
-def test_bars_requires_exactly_one_symbol(api_client) -> None:
-    required = api_client.get("/api/v1/market-data/bars", params={"timespan": "day"})
-    conflict = api_client.get(
-        "/api/v1/market-data/bars",
-        params={
-            "ticker": "AAPL",
-            "option_ticker": "O:AAPL260221C00210000",
-            "timespan": "day",
-        },
-    )
+def test_bars_requires_ticker(api_client) -> None:
+    response = api_client.get("/api/v1/market-data/bars", params={"timespan": "day"})
 
-    assert required.status_code == 400
-    assert required.json()["error"]["code"] == "MARKET_DATA_SYMBOL_REQUIRED"
-    assert conflict.status_code == 400
-    assert conflict.json()["error"]["code"] == "MARKET_DATA_SYMBOL_CONFLICT"
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "MARKET_DATA_SYMBOL_REQUIRED"
 
 
 def test_bars_rejects_invalid_timespan(api_client) -> None:
@@ -56,25 +46,16 @@ def test_bars_rejects_invalid_timespan(api_client) -> None:
 
 
 def test_bars_rejects_invalid_symbol_format(api_client) -> None:
-    bad_ticker = api_client.get(
+    response = api_client.get(
         "/api/v1/market-data/bars",
         params={
             "ticker": "AAPL/../../etc/passwd",
             "timespan": "day",
         },
     )
-    bad_option_ticker = api_client.get(
-        "/api/v1/market-data/bars",
-        params={
-            "option_ticker": "O:AAPL/../../BAD",
-            "timespan": "day",
-        },
-    )
 
-    assert bad_ticker.status_code == 400
-    assert bad_ticker.json()["error"]["code"] == "MARKET_DATA_INVALID_SYMBOL"
-    assert bad_option_ticker.status_code == 400
-    assert bad_option_ticker.json()["error"]["code"] == "MARKET_DATA_INVALID_SYMBOL"
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "MARKET_DATA_INVALID_SYMBOL"
 
 
 def test_bars_rejects_invalid_date_range(api_client) -> None:

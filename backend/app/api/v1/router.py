@@ -6,7 +6,6 @@ from app.api.v1.endpoints.demo_market_data_stream import router as demo_market_d
 from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.endpoints.market_data import router as market_data_rest_router
 from app.api.v1.endpoints.market_data_stream import router as market_data_stream_router
-from app.api.v1.endpoints.options import router as options_router
 from app.api.v1.endpoints.watchlist import router as watchlist_router
 from app.core.config import settings
 
@@ -24,7 +23,6 @@ def create_api_router() -> APIRouter:
     router.include_router(watchlist_router, prefix="/watchlist", tags=["watchlist"])
     router.include_router(market_data_rest_router, prefix="/market-data", tags=["market-data"])
     router.include_router(market_data_stream_router, prefix="/market-data", tags=["market-data"])
-    router.include_router(options_router, prefix="/options", tags=["options"])
     if _demo_endpoints_enabled():
         router.include_router(demo_market_data_router, prefix="/demo", tags=["demo"])
         router.include_router(demo_market_data_stream_router, prefix="/demo", tags=["demo"])
