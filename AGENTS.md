@@ -157,6 +157,7 @@ If `npm` is unavailable in current environment, state that explicitly in the del
 
 When the user asks to commit and does not provide a custom format, follow this default:
 
+- Commit messages must be written in English by default.
 - The title should be a single sentence summarizing the main change.
 - The title must include one type: `feat` / `bugfix` / `refactor`.
 - The title must include the primary scope: `frontend` or `backend` (for cross-layer changes, use the dominant scope).
