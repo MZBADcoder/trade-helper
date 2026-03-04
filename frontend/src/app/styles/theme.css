@@ -865,6 +865,21 @@ pre {
   gap: 6px;
 }
 
+.chartLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 3px 8px;
+  background: rgba(8, 14, 26, 0.82);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .chartZoomGroup {
   display: inline-flex;
   align-items: center;
@@ -925,6 +940,14 @@ pre {
   background: #5c8cf7;
 }
 
+.chartToggleSwatchPrice {
+  background: #79d7ff;
+}
+
+.chartToggleSwatchAvg {
+  background: #f9d66b;
+}
+
 .chartToggleBtnActive {
   border-color: rgba(116, 184, 255, 0.62);
   color: #d5e3f8;
@@ -946,6 +969,14 @@ pre {
   font-size: 10px;
   color: #ceddf3;
   background: rgba(7, 14, 26, 0.72);
+}
+
+.chartTagUp {
+  color: #7fe5c7;
+}
+
+.chartTagDown {
+  color: #ff9eb2;
 }
 
 .chartSvg {

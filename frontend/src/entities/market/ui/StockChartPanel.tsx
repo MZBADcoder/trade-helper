@@ -58,6 +58,7 @@ export function StockChartPanel({
   const volumeMa5 = simpleMovingAverage(visibleBars.map((bar) => bar.volume), 5);
   const labels = visibleBars.map((bar) => bar.start_at);
   const timeTicks = buildTimeTicks(visibleBars, 6);
+  const isIntradayLineMode = isIntradayLineTimeframe(timeframe, visibleBars);
 
   React.useEffect(() => {
     setHoveredIndex(null);
@@ -101,42 +102,64 @@ export function StockChartPanel({
 
   return (
     <div className="chartStack">
-      <PricePane
-        ticker={ticker}
-        bars={visibleBars}
-        ma20={ma20}
-        ma50={ma50}
-        bollMid={bollMid}
-        bollUpper={bollUpper}
-        bollLower={bollLower}
-        hoverIndex={hoveredIndex}
-        onHoverChange={setHoveredIndex}
-        showMa20={showMa20}
-        showMa50={showMa50}
-        showBoll={showBoll}
-        onToggleMa20={() => setShowMa20((prev) => !prev)}
-        onToggleMa50={() => setShowMa50((prev) => !prev)}
-        onToggleBoll={() => setShowBoll((prev) => !prev)}
-        zoomCount={visibleBars.length}
-        canZoomIn={zoomIndex < ZOOM_LEVELS.length - 1}
-        canZoomOut={zoomIndex > 0}
-        onZoomIn={() => setZoomIndex((prev) => Math.min(prev + 1, ZOOM_LEVELS.length - 1))}
-        onZoomOut={() => setZoomIndex((prev) => Math.max(prev - 1, 0))}
-        panOffset={clampedPanOffset}
-        maxPan={maxPan}
-        onPanOffsetChange={setPanOffset}
-        hasMoreBefore={hasMoreBefore}
-        isLoadingMoreBefore={isLoadingMoreBefore}
-      />
-      <MacdPane
-        line={macdLine}
-        signal={macdSignal}
-        histogram={macdHistogram}
-        labels={labels}
-        hoverIndex={hoveredIndex}
-        onHoverChange={setHoveredIndex}
-      />
-      <RsiPane values={rsi14} labels={labels} hoverIndex={hoveredIndex} onHoverChange={setHoveredIndex} />
+      {isIntradayLineMode ? (
+        <IntradayPricePane
+          ticker={ticker}
+          bars={visibleBars}
+          sessionBars={bars}
+          hoverIndex={hoveredIndex}
+          onHoverChange={setHoveredIndex}
+          zoomCount={visibleBars.length}
+          canZoomIn={zoomIndex < ZOOM_LEVELS.length - 1}
+          canZoomOut={zoomIndex > 0}
+          onZoomIn={() => setZoomIndex((prev) => Math.min(prev + 1, ZOOM_LEVELS.length - 1))}
+          onZoomOut={() => setZoomIndex((prev) => Math.max(prev - 1, 0))}
+          panOffset={clampedPanOffset}
+          maxPan={maxPan}
+          onPanOffsetChange={setPanOffset}
+          hasMoreBefore={hasMoreBefore}
+          isLoadingMoreBefore={isLoadingMoreBefore}
+        />
+      ) : (
+        <>
+          <PricePane
+            ticker={ticker}
+            bars={visibleBars}
+            ma20={ma20}
+            ma50={ma50}
+            bollMid={bollMid}
+            bollUpper={bollUpper}
+            bollLower={bollLower}
+            hoverIndex={hoveredIndex}
+            onHoverChange={setHoveredIndex}
+            showMa20={showMa20}
+            showMa50={showMa50}
+            showBoll={showBoll}
+            onToggleMa20={() => setShowMa20((prev) => !prev)}
+            onToggleMa50={() => setShowMa50((prev) => !prev)}
+            onToggleBoll={() => setShowBoll((prev) => !prev)}
+            zoomCount={visibleBars.length}
+            canZoomIn={zoomIndex < ZOOM_LEVELS.length - 1}
+            canZoomOut={zoomIndex > 0}
+            onZoomIn={() => setZoomIndex((prev) => Math.min(prev + 1, ZOOM_LEVELS.length - 1))}
+            onZoomOut={() => setZoomIndex((prev) => Math.max(prev - 1, 0))}
+            panOffset={clampedPanOffset}
+            maxPan={maxPan}
+            onPanOffsetChange={setPanOffset}
+            hasMoreBefore={hasMoreBefore}
+            isLoadingMoreBefore={isLoadingMoreBefore}
+          />
+          <MacdPane
+            line={macdLine}
+            signal={macdSignal}
+            histogram={macdHistogram}
+            labels={labels}
+            hoverIndex={hoveredIndex}
+            onHoverChange={setHoveredIndex}
+          />
+          <RsiPane values={rsi14} labels={labels} hoverIndex={hoveredIndex} onHoverChange={setHoveredIndex} />
+        </>
+      )}
       <VolumePane
         bars={visibleBars}
         volumeMa5={volumeMa5}
@@ -319,6 +342,7 @@ function PricePane({
         </div>
       </div>
       <svg
+        data-testid="primary-price-chart"
         className={`chartSvg chartSvgInteractive ${maxPan > 0 ? "chartSvgDraggable" : ""} ${isDragging ? "chartSvgDragging" : ""}`}
         viewBox={`0 0 ${width} ${height}`}
         onPointerMove={handlePointerMove}
@@ -384,6 +408,211 @@ function PricePane({
           </text>
           <text x="10" y="117" fill="#8eb6ff" fontSize="12" fontFamily="JetBrains Mono, monospace">
             M {toPrice(bollMid[activeIndex])}  L {toPrice(bollLower[activeIndex])}
+          </text>
+        </g>
+      </svg>
+    </section>
+  );
+}
+
+type IntradayPricePaneProps = {
+  ticker: string;
+  bars: MarketBar[];
+  sessionBars: MarketBar[];
+  hoverIndex: number | null;
+  onHoverChange: (index: number | null) => void;
+  zoomCount: number;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  panOffset: number;
+  maxPan: number;
+  onPanOffsetChange: (nextOffset: number) => void;
+  hasMoreBefore: boolean;
+  isLoadingMoreBefore: boolean;
+};
+
+function IntradayPricePane({
+  ticker,
+  bars,
+  sessionBars,
+  hoverIndex,
+  onHoverChange,
+  zoomCount,
+  canZoomIn,
+  canZoomOut,
+  onZoomIn,
+  onZoomOut,
+  panOffset,
+  maxPan,
+  onPanOffsetChange,
+  hasMoreBefore,
+  isLoadingMoreBefore
+}: IntradayPricePaneProps) {
+  const width = CHART_WIDTH;
+  const height = 310;
+  const plotWidth = width - PLOT_LEFT - PLOT_RIGHT;
+  const stepX = plotWidth / bars.length;
+  const dragRef = React.useRef<{
+    startX: number;
+    startOffset: number;
+    pointerId: number;
+  } | null>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const activeIndex = hoverIndex ?? bars.length - 1;
+  const activeBar = bars[activeIndex];
+  const sessionScopeBars = sessionBars.length > 0 ? sessionBars : bars;
+  const openPrice = sessionScopeBars[0]?.open ?? activeBar.open;
+  const closeSeries = bars.map((bar) => bar.close);
+  const avgSeries = buildIntradayAveragePriceSeries(bars);
+  const range = collectIntradayRange(closeSeries, avgSeries, openPrice);
+  const y = (value: number) => scaleValue(value, range.min, range.max, height);
+  const axisTicks = getLinearTicks(range.min, range.max, 5);
+
+  const pricePath = buildLinePath(closeSeries, stepX, (value) => y(value), width);
+  const avgPath = buildLinePath(avgSeries, stepX, (value) => y(value), width);
+
+  const crossX = indexToX(activeIndex, stepX);
+  const closeY = y(activeBar.close);
+  const openY = y(openPrice);
+  const activeAvg = avgSeries[activeIndex] ?? activeBar.close;
+  const change = activeBar.close - openPrice;
+  const changePct = openPrice === 0 ? null : (change / openPrice) * 100;
+  const dayHigh = Math.max(...sessionScopeBars.map((bar) => bar.high));
+  const dayLow = Math.min(...sessionScopeBars.map((bar) => bar.low));
+  const tooltipWidth = 210;
+  const tooltipHeight = 118;
+  const tooltipX = Math.min(width - tooltipWidth - 10, Math.max(10, crossX + 12));
+  const tooltipY = Math.min(height - tooltipHeight - 10, Math.max(10, closeY - tooltipHeight / 2));
+  const changeToneClass = change > 0 ? "chartTagUp" : change < 0 ? "chartTagDown" : "";
+
+  function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
+    const x = pointerToChartX(event, width);
+    onHoverChange(coordinateToIndex(x, stepX, bars.length));
+
+    const drag = dragRef.current;
+    if (!drag) return;
+    const deltaPx = event.clientX - drag.startX;
+    const barsPerPx = bars.length / Math.max(1, plotWidth);
+    const deltaBars = Math.round(deltaPx * barsPerPx);
+    onPanOffsetChange(drag.startOffset - deltaBars);
+  }
+
+  function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
+    if (maxPan <= 0) return;
+    dragRef.current = {
+      startX: event.clientX,
+      startOffset: panOffset,
+      pointerId: event.pointerId
+    };
+    setIsDragging(true);
+    if (event.currentTarget.setPointerCapture) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePointerUp(event: React.PointerEvent<SVGSVGElement>) {
+    if (dragRef.current && dragRef.current.pointerId === event.pointerId) {
+      dragRef.current = null;
+      setIsDragging(false);
+      if (event.currentTarget.releasePointerCapture) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    }
+  }
+
+  return (
+    <section className="chartPanel">
+      <div className="chartHeader chartHeaderSplit">
+        <div className="chartTitleRow">
+          <span className="chartTitle">{ticker} Intraday</span>
+          <InfoHint
+            title="Intraday"
+            content="分时线基于分钟K收盘价；黄线为盘中累计均价。当前仅展示盘中（regular）数据。"
+          />
+        </div>
+        <div className="chartHeaderControls">
+          <div className="chartToggleGroup">
+            <span className="chartLegendItem">
+              <span className="chartToggleSwatch chartToggleSwatchPrice" />
+              Price
+            </span>
+            <span className="chartLegendItem">
+              <span className="chartToggleSwatch chartToggleSwatchAvg" />
+              Avg
+            </span>
+          </div>
+          <div className="chartZoomGroup">
+            <button type="button" className="chartZoomBtn" onClick={onZoomOut} disabled={!canZoomOut}>
+              -
+            </button>
+            <span className="chartIndicatorTag">Bars {zoomCount}</span>
+            <button type="button" className="chartZoomBtn" onClick={onZoomIn} disabled={!canZoomIn}>
+              +
+            </button>
+            <span className="chartIndicatorTag">Shift {panOffset}</span>
+          </div>
+          <div className="chartIndicatorRow">
+            <span className="chartIndicatorTag">{formatDate(activeBar.start_at)}</span>
+            <span className={`chartIndicatorTag ${changeToneClass}`.trim()}>Price {toPrice(activeBar.close)}</span>
+            <span className="chartIndicatorTag">Avg {toPrice(activeAvg)}</span>
+            <span className="chartIndicatorTag">Open {toPrice(openPrice)}</span>
+            <span className={`chartIndicatorTag ${changeToneClass}`.trim()}>
+              Chg {toSignedPrice(change)} {toSignedPercent(changePct)}
+            </span>
+            {isLoadingMoreBefore ? <span className="chartIndicatorTag">Loading older...</span> : null}
+            {!isLoadingMoreBefore && hasMoreBefore ? <span className="chartIndicatorTag">Drag left for history</span> : null}
+          </div>
+        </div>
+      </div>
+      <svg
+        data-testid="primary-price-chart"
+        className={`chartSvg chartSvgInteractive ${maxPan > 0 ? "chartSvgDraggable" : ""} ${isDragging ? "chartSvgDragging" : ""}`}
+        viewBox={`0 0 ${width} ${height}`}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => onHoverChange(null)}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <rect x="0" y="0" width={width} height={height} fill="rgba(5, 10, 18, 0.88)" />
+
+        {renderYAxis(axisTicks, (value) => y(value), width, (value) => toPrice(value), height)}
+
+        <line
+          x1={PLOT_LEFT}
+          x2={width - PLOT_RIGHT}
+          y1={openY}
+          y2={openY}
+          stroke="rgba(240, 245, 255, 0.22)"
+          strokeDasharray="4 4"
+        />
+
+        <path d={pricePath} stroke="#79d7ff" strokeWidth="1.7" fill="none" />
+        <path d={avgPath} stroke="#f9d66b" strokeWidth="1.4" fill="none" opacity="0.92" />
+
+        <line x1={crossX} x2={crossX} y1={PLOT_TOP_BOTTOM} y2={height - PLOT_TOP_BOTTOM} stroke="rgba(255,255,255,0.28)" strokeDasharray="4 4" />
+        <line x1={PLOT_LEFT} x2={width - PLOT_RIGHT} y1={closeY} y2={closeY} stroke="rgba(255,255,255,0.22)" strokeDasharray="4 4" />
+        <circle cx={crossX} cy={closeY} r="3.2" fill="rgba(255,255,255,0.95)" />
+
+        <g transform={`translate(${tooltipX}, ${tooltipY})`}>
+          <rect width={tooltipWidth} height={tooltipHeight} rx="8" fill="rgba(8,14,24,0.95)" stroke="rgba(116,184,255,0.45)" />
+          <text x="10" y="19" fill="#bfd0eb" fontSize="11" fontFamily="JetBrains Mono, monospace">
+            {formatDate(activeBar.start_at)}
+          </text>
+          <text x="10" y="40" fill="#e8edf7" fontSize="12" fontFamily="JetBrains Mono, monospace">
+            Price {toPrice(activeBar.close)}  Avg {toPrice(activeAvg)}
+          </text>
+          <text x="10" y="61" fill="#e8edf7" fontSize="12" fontFamily="JetBrains Mono, monospace">
+            Open {toPrice(openPrice)}  High {toPrice(dayHigh)}
+          </text>
+          <text x="10" y="82" fill="#e8edf7" fontSize="12" fontFamily="JetBrains Mono, monospace">
+            Low {toPrice(dayLow)}
+          </text>
+          <text x="10" y="102" fill={change > 0 ? "#7fe5c7" : change < 0 ? "#ff9eb2" : "#d6e5fc"} fontSize="12" fontFamily="JetBrains Mono, monospace">
+            Chg {toSignedPrice(change)} {toSignedPercent(changePct)}
           </text>
         </g>
       </svg>
@@ -709,6 +938,47 @@ function InfoHint({ title, content }: { title: string; content: string }) {
   );
 }
 
+function isIntradayLineTimeframe(timeframe: string | null | undefined, bars: MarketBar[]): boolean {
+  const normalized = (timeframe ?? "").toLowerCase();
+  if (normalized) {
+    return normalized === "intraday";
+  }
+
+  const first = bars[0];
+  if (!first) return false;
+  return first.timespan.toLowerCase() === "minute" && first.multiplier === 1;
+}
+
+function buildIntradayAveragePriceSeries(bars: MarketBar[]): number[] {
+  const series: number[] = [];
+  let turnover = 0;
+  let volume = 0;
+  let closeSum = 0;
+
+  bars.forEach((bar, index) => {
+    const safeVolume = Number.isFinite(bar.volume) ? Math.max(0, bar.volume) : 0;
+    closeSum += bar.close;
+    if (safeVolume > 0) {
+      turnover += bar.close * safeVolume;
+      volume += safeVolume;
+      series.push(turnover / volume);
+      return;
+    }
+
+    series.push(volume > 0 ? turnover / volume : closeSum / (index + 1));
+  });
+
+  return series;
+}
+
+function collectIntradayRange(closeSeries: number[], avgSeries: number[], openPrice: number): { min: number; max: number } {
+  const values = [...closeSeries, ...avgSeries, openPrice];
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const padding = (max - min) * 0.05 || 1;
+  return { min: min - padding, max: max + padding };
+}
+
 function buildTimeTicks(bars: MarketBar[], maxTicks: number): TimeAxisTick[] {
   if (!bars.length) return [];
 
@@ -843,6 +1113,18 @@ function clamp(value: number, min: number, max: number): number {
 function toPrice(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
   return value.toFixed(2);
+}
+
+function toSignedPrice(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "--";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}`;
+}
+
+function toSignedPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "--";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
 }
 
 function formatVolume(value: number | null | undefined): string {

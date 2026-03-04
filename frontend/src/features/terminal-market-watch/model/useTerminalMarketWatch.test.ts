@@ -2,21 +2,34 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDetailCacheKey,
+  marketDateFromTimestamp,
   marketQueryForTimeframe,
   mergeBarsByStartAt,
   isMarketStreamWindowOpen,
   resolveMarketRealtimeConfig,
   resolveStreamWsBaseUrl,
+  SESSION_OPTIONS,
   sessionKeyForTimeframe,
   shouldIgnoreMarketMessage,
   shouldStopDegradedPollingOnStatus,
   streamChannelsForRealtime,
+  toUserFacingError,
   websocketEnabledForDelay,
   TIMEFRAME_OPTIONS
 } from "./marketWatchUtils";
 
 describe("marketQueryForTimeframe", () => {
   it("maps intraday timeframes to 10-trading-day policy", () => {
+    expect(marketQueryForTimeframe("intraday")).toEqual({
+      timespan: "minute",
+      multiplier: 1,
+      useTradingDays: true,
+      lookbackDays: 10,
+      initialWindowDays: 1,
+      refreshWindowDays: 1,
+      chunkWindowDays: 1,
+      limit: 5000
+    });
     expect(marketQueryForTimeframe("1m")).toEqual({
       timespan: "minute",
       multiplier: 1,
@@ -96,8 +109,25 @@ describe("marketQueryForTimeframe", () => {
 describe("TIMEFRAME_OPTIONS", () => {
   it("contains 1m/5m/15m/60m and no legacy minute option", () => {
     const keys = TIMEFRAME_OPTIONS.map((item) => item.key);
-    expect(keys).toEqual(["1m", "5m", "15m", "60m", "day", "week", "month"]);
+    expect(keys).toEqual(["intraday", "1m", "5m", "15m", "60m", "day", "week", "month"]);
     expect(keys).not.toContain("minute");
+  });
+});
+
+describe("SESSION_OPTIONS", () => {
+  it("defaults to regular session only", () => {
+    expect(SESSION_OPTIONS).toEqual([{ key: "regular", label: "盘中" }]);
+  });
+});
+
+describe("marketDateFromTimestamp", () => {
+  it("converts timestamps into America/New_York trading date", () => {
+    expect(marketDateFromTimestamp("2026-02-25T01:00:00Z")).toBe("2026-02-24");
+    expect(marketDateFromTimestamp("2026-02-25T15:30:00Z")).toBe("2026-02-25");
+  });
+
+  it("returns null for invalid timestamp", () => {
+    expect(marketDateFromTimestamp("not-a-time")).toBeNull();
   });
 });
 
@@ -251,12 +281,22 @@ describe("resolveStreamWsBaseUrl", () => {
     ).toBe("ws://127.0.0.1:8000");
   });
 
-  it("supports host:port base without protocol", () => {
+  it("supports host:port base without protocol on http pages", () => {
     expect(
       resolveStreamWsBaseUrl({
-        wsBaseUrl: "localhost:9000"
+        wsBaseUrl: "localhost:9000",
+        currentProtocol: "http:"
       })
     ).toBe("ws://localhost:9000");
+  });
+
+  it("upgrades host:port base to wss on https pages", () => {
+    expect(
+      resolveStreamWsBaseUrl({
+        wsBaseUrl: "localhost:9000",
+        currentProtocol: "https:"
+      })
+    ).toBe("wss://localhost:9000");
   });
 
   it("falls back to current origin when env values are invalid", () => {
@@ -272,6 +312,13 @@ describe("resolveStreamWsBaseUrl", () => {
 
 describe("streamChannelsForRealtime", () => {
   it("always keeps the same stream channels", () => {
+    expect(streamChannelsForRealtime()).toEqual(["trade", "quote", "aggregate"]);
+  });
+
+  it("returns a fresh array to prevent accidental mutation leaks", () => {
+    const first = streamChannelsForRealtime();
+    first.push("fake-channel");
+
     expect(streamChannelsForRealtime()).toEqual(["trade", "quote", "aggregate"]);
   });
 });
@@ -304,6 +351,70 @@ describe("shouldIgnoreMarketMessage", () => {
         }
       )
     ).toBe(false);
+  });
+
+  it("ignores messages outside subscribed symbols", () => {
+    expect(
+      shouldIgnoreMarketMessage(
+        {
+          type: "market.quote",
+          symbol: "MSFT",
+          eventTs: "2026-02-19T12:00:01Z",
+          bid: 203.11,
+          ask: 203.12,
+          bidSize: 10,
+          askSize: 9
+        },
+        {
+          allowedSymbols: new Set(["AAPL"])
+        }
+      )
+    ).toBe(true);
+  });
+
+  it("ignores messages outside subscribed channels", () => {
+    expect(
+      shouldIgnoreMarketMessage(
+        {
+          type: "market.aggregate",
+          symbol: "AAPL",
+          eventTs: "2026-02-19T12:00:01Z",
+          timespan: "minute",
+          multiplier: 1,
+          open: 203.01,
+          high: 203.22,
+          low: 202.98,
+          close: 203.11,
+          last: 203.11,
+          volume: 123,
+          vwap: 203.1
+        },
+        {
+          allowedSymbols: new Set(["AAPL"]),
+          allowedChannels: new Set(["trade", "quote"])
+        }
+      )
+    ).toBe(true);
+  });
+});
+
+describe("toUserFacingError", () => {
+  it("keeps safe code context but hides raw backend details", () => {
+    expect(
+      toUserFacingError({
+        fallback: "Failed to refresh snapshots.",
+        error: new Error("SNAPSHOT_UPSTREAM_DOWN: failed to dial tcp 10.0.0.7")
+      })
+    ).toBe("SNAPSHOT_UPSTREAM_DOWN: Failed to refresh snapshots.");
+  });
+
+  it("falls back to operation-safe message when no trusted code exists", () => {
+    expect(
+      toUserFacingError({
+        fallback: "Failed to load watchlist.",
+        error: new Error("upstream timeout while reading response body")
+      })
+    ).toBe("Failed to load watchlist.");
   });
 });
 

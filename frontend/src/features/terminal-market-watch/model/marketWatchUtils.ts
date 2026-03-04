@@ -3,8 +3,9 @@ import { listTradingDays, type MarketBar, type MarketSnapshot } from "@/entities
 import { type StreamMarketMessage, type StreamStatusMessage } from "./streamProtocol";
 import { type SessionKey, type SessionOption, type TimeframeKey, type TimeframeOption } from "./types";
 
-const STREAM_CHANNELS_REALTIME = ["trade", "quote", "aggregate"];
+const STREAM_CHANNELS_REALTIME = ["trade", "quote", "aggregate"] as const;
 const DEFAULT_MARKET_DELAY_MINUTES = 15;
+const STREAM_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
 
 const INTRADAY_LOOKBACK_DAYS = 10;
 const INTRADAY_LOAD_WINDOW_DAYS_1M = 3;
@@ -30,6 +31,7 @@ const MARKET_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-US", {
 });
 
 export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
+  { key: "intraday", label: "分时" },
   { key: "1m", label: "1m" },
   { key: "5m", label: "5m" },
   { key: "15m", label: "15m" },
@@ -40,14 +42,13 @@ export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
 ];
 
 export const SESSION_OPTIONS: SessionOption[] = [
-  { key: "regular", label: "盘中" },
-  { key: "pre", label: "盘前" },
-  { key: "night", label: "夜盘" }
+  { key: "regular", label: "盘中" }
 ];
 
 type StreamWsBaseUrlParams = {
   wsBaseUrl?: string;
   apiBaseUrl?: string;
+  currentProtocol?: string;
 };
 
 type MarketRealtimeConfigEnv = {
@@ -85,15 +86,34 @@ export function resolveMarketRealtimeConfig(env: MarketRealtimeConfigEnv): Marke
 }
 
 export function streamChannelsForRealtime(): string[] {
-  return STREAM_CHANNELS_REALTIME;
+  return [...STREAM_CHANNELS_REALTIME];
 }
 
 export function websocketEnabledForDelay(delayMinutes: number): boolean {
   return Math.max(0, Math.trunc(delayMinutes)) === 0;
 }
 
-export function shouldIgnoreMarketMessage(message: StreamMarketMessage): boolean {
-  void message;
+export function shouldIgnoreMarketMessage(
+  message: StreamMarketMessage,
+  filter: {
+    allowedSymbols?: ReadonlySet<string>;
+    allowedChannels?: ReadonlySet<string>;
+  } = {}
+): boolean {
+  const symbol = normalizeSymbol(message.symbol);
+  if (!symbol) {
+    return true;
+  }
+
+  const channel = message.type.replace("market.", "");
+  if (filter.allowedChannels && !filter.allowedChannels.has(channel)) {
+    return true;
+  }
+
+  if (filter.allowedSymbols && !filter.allowedSymbols.has(symbol)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -234,6 +254,17 @@ export async function resolveTradingChunkFetchRange(params: {
 
 export function marketQueryForTimeframe(timeframe: TimeframeKey): TimeframeQueryConfig {
   switch (timeframe) {
+    case "intraday":
+      return {
+        timespan: "minute",
+        multiplier: 1,
+        useTradingDays: true,
+        lookbackDays: INTRADAY_LOOKBACK_DAYS,
+        initialWindowDays: 1,
+        refreshWindowDays: 1,
+        chunkWindowDays: 1,
+        limit: 5000
+      };
     case "1m":
       return {
         timespan: "minute",
@@ -316,7 +347,7 @@ export function marketQueryForTimeframe(timeframe: TimeframeKey): TimeframeQuery
 }
 
 export function isIntradayTimeframe(timeframe: TimeframeKey): boolean {
-  return timeframe === "1m" || timeframe === "5m" || timeframe === "15m" || timeframe === "60m";
+  return timeframe === "intraday" || timeframe === "1m" || timeframe === "5m" || timeframe === "15m" || timeframe === "60m";
 }
 
 export function sessionKeyForTimeframe(timeframe: TimeframeKey, session: SessionKey): SessionKey {
@@ -373,21 +404,54 @@ export function buildStreamUrl(): string {
 }
 
 export function resolveStreamWsBaseUrl(params: StreamWsBaseUrlParams): string {
-  const fallbackProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const currentProtocol = params.currentProtocol ?? window.location.protocol;
+  const fallbackProtocol = currentProtocol === "https:" ? "wss:" : "ws:";
   const fallback = `${fallbackProtocol}//${window.location.host}`;
 
-  const direct = normalizeWsBaseUrl(params.wsBaseUrl);
+  const direct = normalizeWsBaseUrl(params.wsBaseUrl, fallbackProtocol);
   if (direct) return direct;
 
-  const fromApi = normalizeWsBaseUrl(params.apiBaseUrl);
+  const fromApi = normalizeWsBaseUrl(params.apiBaseUrl, fallbackProtocol);
   if (fromApi) return fromApi;
 
   return fallback;
 }
 
+export function toUserFacingError(params: {
+  fallback: string;
+  error?: unknown;
+  message?: string | null;
+  code?: string | null;
+}): string {
+  const explicitCode = normalizeErrorCode(params.code);
+  if (explicitCode) {
+    return `${explicitCode}: ${params.fallback}`;
+  }
+
+  const message = resolveErrorMessage(params.error, params.message);
+  if (!message) {
+    return params.fallback;
+  }
+
+  const parsedCode = parseErrorCodeFromMessage(message);
+  if (!parsedCode) {
+    return params.fallback;
+  }
+
+  return `${parsedCode}: ${params.fallback}`;
+}
+
 export function toMillis(value: string): number {
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export function marketDateFromTimestamp(value: string): string | null {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return formatMarketDate(parsed);
 }
 
 export function resolveSnapshotLast(currentLast: number, message: StreamMarketMessage): number {
@@ -466,12 +530,12 @@ async function resolvePreviousTradingDate(params: {
   return shiftTradingDate(params.dateString, -1);
 }
 
-function normalizeWsBaseUrl(raw: string | undefined): string | null {
+function normalizeWsBaseUrl(raw: string | undefined, fallbackProtocol: "ws:" | "wss:"): string | null {
   const value = raw?.trim();
   if (!value) return null;
 
   const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
-  const candidate = hasProtocol ? value : `ws://${value}`;
+  const candidate = hasProtocol ? value : `${fallbackProtocol}//${value}`;
 
   try {
     const parsed = new URL(candidate);
@@ -497,4 +561,45 @@ function parseNonNegativeInt(value: string | undefined, fallback: number): numbe
     return fallback;
   }
   return parsed;
+}
+
+function resolveErrorMessage(error: unknown, message: string | null | undefined): string | null {
+  const explicit = message?.trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  if (error instanceof Error) {
+    const errMessage = error.message.trim();
+    return errMessage || null;
+  }
+
+  if (typeof error === "string") {
+    const normalized = error.trim();
+    return normalized || null;
+  }
+
+  if (error && typeof error === "object" && "message" in error) {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === "string") {
+      const normalized = maybeMessage.trim();
+      return normalized || null;
+    }
+  }
+
+  return null;
+}
+
+function parseErrorCodeFromMessage(message: string): string | null {
+  const index = message.indexOf(":");
+  const codeCandidate = index >= 0 ? message.slice(0, index).trim() : message.trim();
+  return normalizeErrorCode(codeCandidate);
+}
+
+function normalizeErrorCode(code: string | null | undefined): string | null {
+  const normalized = (code ?? "").trim().toUpperCase();
+  if (!STREAM_ERROR_CODE_PATTERN.test(normalized)) {
+    return null;
+  }
+  return normalized;
 }

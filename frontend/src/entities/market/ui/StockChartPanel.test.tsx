@@ -35,9 +35,9 @@ describe("StockChartPanel", () => {
     const bars = createBars(1);
     const indicators = buildIndicators(bars);
 
-    const { unmount } = render(<StockChartPanel ticker="AAPL" timeframe="1m" bars={bars} indicators={indicators} />);
+    const { unmount } = render(<StockChartPanel ticker="AAPL" timeframe="intraday" bars={bars} indicators={indicators} />);
 
-    expect(screen.getByText("AAPL Price / MA / BOLL")).toBeTruthy();
+    expect(screen.getByText("AAPL Intraday")).toBeTruthy();
     expect(screen.getByText("Bars 1")).toBeTruthy();
     expect(screen.queryByText("Insufficient bars for chart rendering.")).toBeNull();
 
@@ -62,6 +62,16 @@ describe("StockChartPanel", () => {
     expect(screen.getByText("Bars 500")).toBeTruthy();
   });
 
+  it("uses full intraday session scope for open and change", () => {
+    const bars = createBars(600);
+    const indicators = buildIndicators(bars);
+
+    render(<StockChartPanel ticker="AAPL" timeframe="intraday" bars={bars} indicators={indicators} />);
+
+    expect(screen.getAllByText("Open 100.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Chg +30.15 +30.15%").length).toBeGreaterThan(0);
+  });
+
   it("triggers auto history load when panned to the left edge", async () => {
     const bars = createBars(1200);
     const indicators = buildIndicators(bars);
@@ -78,7 +88,7 @@ describe("StockChartPanel", () => {
       />
     );
 
-    const svg = container.querySelector("svg.chartSvgInteractive");
+    const svg = container.querySelector('[data-testid="primary-price-chart"]');
     if (!svg) {
       throw new Error("chart svg not found");
     }
@@ -109,7 +119,7 @@ describe("StockChartPanel", () => {
       />
     );
 
-    const svg = container.querySelector("svg.chartSvgInteractive");
+    const svg = container.querySelector('[data-testid="primary-price-chart"]');
     if (!svg) {
       throw new Error("chart svg not found");
     }

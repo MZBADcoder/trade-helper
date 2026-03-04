@@ -14,6 +14,7 @@ vi.mock("../model/useTerminalMarketWatch", () => ({
 
 vi.mock("../model/marketWatchUtils", () => ({
   TIMEFRAME_OPTIONS: [
+    { key: "intraday", label: "分时" },
     { key: "1m", label: "1m" },
     { key: "5m", label: "5m" },
     { key: "15m", label: "15m" },
@@ -23,9 +24,7 @@ vi.mock("../model/marketWatchUtils", () => ({
     { key: "month", label: "Month" }
   ],
   SESSION_OPTIONS: [
-    { key: "regular", label: "盘中" },
-    { key: "pre", label: "盘前" },
-    { key: "night", label: "夜盘" }
+    { key: "regular", label: "盘中" }
   ]
 }));
 

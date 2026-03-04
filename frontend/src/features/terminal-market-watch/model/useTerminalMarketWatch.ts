@@ -4,6 +4,7 @@ import {
   buildIndicators,
   listMarketBarsWithMeta,
   listMarketSnapshots,
+  listTradingDays,
   type MarketBar,
   type MarketSnapshot
 } from "@/entities/market";
@@ -32,6 +33,7 @@ import {
   isMarketStreamWindowOpen,
   marketQueryForTimeframe,
   mergeBarsByStartAt,
+  marketDateFromTimestamp,
   normalizeSymbol,
   previousHistoryDate,
   resolveFetchRange,
@@ -44,12 +46,14 @@ import {
   shouldStopDegradedPollingOnStatus,
   sortBars,
   streamChannelsForRealtime,
+  toUserFacingError,
   websocketEnabledForDelay,
   toMillis
 } from "./marketWatchUtils";
 import { parseStreamEnvelope, type StreamMarketMessage, type StreamStatusMessage } from "./streamProtocol";
 const SNAPSHOT_POLL_INTERVAL_MS = 4_000;
-const BARS_POLL_INTERVAL_MS = 20_000;
+const INTRADAY_BARS_POLL_INTERVAL_MS = 60_000;
+const KLINE_BARS_POLL_INTERVAL_MS = 20_000;
 const MARKET_STATUS_POLL_INTERVAL_MS = 60_000;
 const MARKET_CLOCK_TICK_MS = 30_000;
 const RECONNECT_MAX_DELAY_MS = 10_000;
@@ -66,6 +70,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const { delayMinutes } = MARKET_REALTIME_CONFIG;
   const websocketEnabled = websocketEnabledForDelay(delayMinutes);
   const streamChannels = React.useMemo(() => streamChannelsForRealtime(), []);
+  const streamChannelSet = React.useMemo(() => new Set(streamChannels), [streamChannels]);
 
   const [watchlist, setWatchlist] = React.useState<WatchlistItem[]>([]);
   const [watchlistBusy, setWatchlistBusy] = React.useState(false);
@@ -73,12 +78,13 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const [tickerInput, setTickerInput] = React.useState("");
 
   const [activeTicker, setActiveTicker] = React.useState<string | null>(null);
-  const [timeframe, setTimeframe] = React.useState<TimeframeKey>("day");
+  const [timeframe, setTimeframe] = React.useState<TimeframeKey>("intraday");
   const [session, setSession] = React.useState<SessionKey>("regular");
   const [detailsByKey, setDetailsByKey] = React.useState<Record<string, DetailSnapshot>>({});
   const detailsRef = React.useRef<Record<string, DetailSnapshot>>({});
   const detailLruRef = React.useRef<string[]>([]);
   const loadMoreInFlightRef = React.useRef<Set<string>>(new Set());
+  const forceDetailInFlightRef = React.useRef<Set<string>>(new Set());
   const detailRequestVersionRef = React.useRef<Record<string, number>>({});
 
   const [snapshotMap, setSnapshotMap] = React.useState<Record<string, MarketSnapshot>>({});
@@ -96,6 +102,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const sessionRef = React.useRef<SessionKey>(session);
   const tokenRef = React.useRef<string | null>(null);
   const desiredSubscriptionsRef = React.useRef<string[]>([]);
+  const desiredSubscriptionSetRef = React.useRef<Set<string>>(new Set());
 
   const refreshSnapshotsRef = React.useRef<(symbols?: string[]) => Promise<void>>(async () => undefined);
   const loadTickerDetailRef = React.useRef<(ticker: string, force?: boolean) => Promise<void>>(async () => undefined);
@@ -108,6 +115,10 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   const manualCloseRef = React.useRef(false);
   const closingSocketSetRef = React.useRef<WeakSet<WebSocket>>(new WeakSet());
   const subscriptionSetRef = React.useRef<Set<string>>(new Set());
+  const intradayAnchorDateRef = React.useRef<{
+    marketDate: string;
+    tradingDate: string;
+  } | null>(null);
 
   React.useEffect(() => {
     detailsRef.current = detailsByKey;
@@ -318,7 +329,12 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         return normalized[0].ticker;
       });
     } catch (error: any) {
-      setWatchlistError(error?.message ?? "Failed to load watchlist.");
+      setWatchlistError(
+        toUserFacingError({
+          error,
+          fallback: "Failed to load watchlist."
+        })
+      );
     } finally {
       setWatchlistBusy(false);
     }
@@ -343,11 +359,38 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           setDataLatency("delayed");
         }
       } catch (error: any) {
-        setLastError(error?.message ?? "Failed to refresh snapshots.");
+        setLastError(
+          toUserFacingError({
+            error,
+            fallback: "Failed to refresh snapshots."
+          })
+        );
       }
     },
     [mergeSnapshots, streamStatus, token, watchlist, websocketEnabled]
   );
+
+  const resolveIntradayAnchorDate = React.useCallback(async (authToken: string): Promise<string> => {
+    const marketDate = currentMarketDate();
+    const cached = intradayAnchorDateRef.current;
+    if (cached && cached.marketDate === marketDate) {
+      return cached.tradingDate;
+    }
+
+    try {
+      const history = await listTradingDays({
+        token: authToken,
+        end: marketDate,
+        count: 1
+      });
+      const tradingDate = history[0] ?? marketDate;
+      intradayAnchorDateRef.current = { marketDate, tradingDate };
+      return tradingDate;
+    } catch {
+      intradayAnchorDateRef.current = { marketDate, tradingDate: marketDate };
+      return marketDate;
+    }
+  }, []);
 
   const loadTickerDetail = React.useCallback(
     async (ticker: string, force = false) => {
@@ -360,137 +403,173 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       const cacheKey = buildDetailCacheKey(symbol, activeTimeframe, resolvedSession);
       const query = marketQueryForTimeframe(activeTimeframe);
       const existing = detailsRef.current[cacheKey];
-      const requestVersion = (detailRequestVersionRef.current[cacheKey] ?? 0) + 1;
-      detailRequestVersionRef.current[cacheKey] = requestVersion;
-      const isStaleRequest = () => detailRequestVersionRef.current[cacheKey] !== requestVersion;
 
       if (!force && existing?.bars.length) {
         touchDetailKey(cacheKey);
         return;
       }
 
-      upsertDetail(
-        cacheKey,
-        (previous) => ({
-          bars: previous?.bars ?? [],
-          indicators: previous?.indicators ?? null,
-          timeframe: activeTimeframe,
-          loading: true,
-          loadingMoreBefore: previous?.loadingMoreBefore ?? false,
-          hasMoreBefore: previous?.hasMoreBefore ?? false,
-          earliestLoadedAt: previous?.earliestLoadedAt ?? null,
-          lookbackStartDate: previous?.lookbackStartDate ?? null,
-          nextFetchEndDate: previous?.nextFetchEndDate ?? null,
-          error: null,
-          updatedAt: previous?.updatedAt ?? null,
-          source: previous?.source ?? null,
-          barsDataSource: previous?.barsDataSource ?? null
-        })
-      );
+      const forceRequestKey = force ? cacheKey : null;
+      if (forceRequestKey && forceDetailInFlightRef.current.has(forceRequestKey)) {
+        return;
+      }
+      if (forceRequestKey) {
+        forceDetailInFlightRef.current.add(forceRequestKey);
+      }
 
-      const endDate = query.useTradingDays ? currentMarketDate() : dateOffset(0);
-      const windowDays = force && existing?.bars.length ? query.refreshWindowDays : query.initialWindowDays;
-      const defaultLookbackStartDate = dateOffset(-(query.lookbackDays - 1));
-      let lookbackStartDate = defaultLookbackStartDate;
-      let range: DateRange = resolveFetchRange({
-        lookbackStartDate: defaultLookbackStartDate,
-        endDate,
-        windowDays
-      });
-      let previousTradingDate: string | null = null;
-      if (query.useTradingDays) {
-        const tradingRange = await resolveTradingFetchRange({
-          token,
-          lookbackDays: query.lookbackDays,
+      const requestVersion = (detailRequestVersionRef.current[cacheKey] ?? 0) + 1;
+      detailRequestVersionRef.current[cacheKey] = requestVersion;
+      const isStaleRequest = () => detailRequestVersionRef.current[cacheKey] !== requestVersion;
+
+      try {
+        upsertDetail(
+          cacheKey,
+          (previous) => ({
+            bars: previous?.bars ?? [],
+            indicators: previous?.indicators ?? null,
+            timeframe: activeTimeframe,
+            loading: true,
+            loadingMoreBefore: previous?.loadingMoreBefore ?? false,
+            hasMoreBefore: previous?.hasMoreBefore ?? false,
+            earliestLoadedAt: previous?.earliestLoadedAt ?? null,
+            lookbackStartDate: previous?.lookbackStartDate ?? null,
+            nextFetchEndDate: previous?.nextFetchEndDate ?? null,
+            error: null,
+            updatedAt: previous?.updatedAt ?? null,
+            source: previous?.source ?? null,
+            barsDataSource: previous?.barsDataSource ?? null
+          })
+        );
+
+        const endDate = query.useTradingDays ? currentMarketDate() : dateOffset(0);
+        const windowDays = force && existing?.bars.length ? query.refreshWindowDays : query.initialWindowDays;
+        const defaultLookbackStartDate = dateOffset(-(query.lookbackDays - 1));
+        let lookbackStartDate = defaultLookbackStartDate;
+        let range: DateRange = resolveFetchRange({
+          lookbackStartDate: defaultLookbackStartDate,
           endDate,
           windowDays
         });
-        if (isStaleRequest()) {
-          return;
+        let previousTradingDate: string | null = null;
+        let intradayAnchorDate: string | null = null;
+        const isSingleDayIntraday = activeTimeframe === "intraday";
+        if (isSingleDayIntraday) {
+          intradayAnchorDate = await resolveIntradayAnchorDate(token);
+          if (isStaleRequest()) {
+            return;
+          }
+          lookbackStartDate = intradayAnchorDate;
+          range = {
+            from: intradayAnchorDate,
+            to: intradayAnchorDate
+          };
+        } else if (query.useTradingDays) {
+          const tradingRange = await resolveTradingFetchRange({
+            token,
+            lookbackDays: query.lookbackDays,
+            endDate,
+            windowDays
+          });
+          if (isStaleRequest()) {
+            return;
+          }
+          lookbackStartDate = tradingRange.lookbackStartDate;
+          range = tradingRange;
+          previousTradingDate = tradingRange.previousTradingDate;
         }
-        lookbackStartDate = tradingRange.lookbackStartDate;
-        range = tradingRange;
-        previousTradingDate = tradingRange.previousTradingDate;
-      }
 
-      try {
-        const payload = await listMarketBarsWithMeta({
-          token,
-          ticker: symbol,
-          timespan: query.timespan,
-          multiplier: query.multiplier,
-          session: resolvedSession,
-          from: range.from,
-          to: range.to,
-          limit: query.limit
-        });
-        if (isStaleRequest()) {
-          return;
-        }
+        try {
+          const payload = await listMarketBarsWithMeta({
+            token,
+            ticker: symbol,
+            timespan: query.timespan,
+            multiplier: query.multiplier,
+            session: resolvedSession,
+            from: range.from,
+            to: range.to,
+            limit: query.limit
+          });
+          if (isStaleRequest()) {
+            return;
+          }
 
-        const incomingBars = sortBars(payload.items);
+          const sortedBars = sortBars(payload.items);
+          const incomingBars =
+            isSingleDayIntraday && intradayAnchorDate
+              ? sortedBars.filter((bar) => marketDateFromTimestamp(bar.start_at) === intradayAnchorDate)
+              : sortedBars;
 
-        upsertDetail(cacheKey, (previous) => {
-          const baseBars =
-            force && (previous?.bars.length || existing?.bars.length)
-              ? previous?.bars ?? existing?.bars ?? []
-              : [];
-          const mergedBars =
-            force && baseBars.length > 0
-              ? mergeBarsByStartAt(baseBars, incomingBars)
-              : incomingBars;
-          const persistedLookbackStartDate =
-            previous?.lookbackStartDate ?? existing?.lookbackStartDate ?? lookbackStartDate;
-          const nextFetchEndDate =
-            force && (previous?.bars.length || existing?.bars.length)
-              ? previous?.nextFetchEndDate ?? existing?.nextFetchEndDate ?? null
-              : query.useTradingDays
-                ? (previousTradingDate ?? previousHistoryDate(range.from))
-                : previousHistoryDate(range.from);
-          const hasMoreBefore = Boolean(
-            mergedBars.length > 0 &&
-              nextFetchEndDate &&
-              compareDateString(nextFetchEndDate, persistedLookbackStartDate) >= 0
-          );
+          upsertDetail(cacheKey, (previous) => {
+            const baseBars =
+              force && (previous?.bars.length || existing?.bars.length)
+                ? previous?.bars ?? existing?.bars ?? []
+                : [];
+            const mergedBars =
+              force && baseBars.length > 0 && !isSingleDayIntraday
+                ? mergeBarsByStartAt(baseBars, incomingBars)
+                : incomingBars;
+            const persistedLookbackStartDate = isSingleDayIntraday
+              ? (intradayAnchorDate ?? lookbackStartDate)
+              : (previous?.lookbackStartDate ?? existing?.lookbackStartDate ?? lookbackStartDate);
+            const nextFetchEndDate = isSingleDayIntraday
+              ? null
+              : force && (previous?.bars.length || existing?.bars.length)
+                ? previous?.nextFetchEndDate ?? existing?.nextFetchEndDate ?? null
+                : query.useTradingDays
+                  ? (previousTradingDate ?? previousHistoryDate(range.from))
+                  : previousHistoryDate(range.from);
+            const hasMoreBefore = !isSingleDayIntraday && Boolean(
+              mergedBars.length > 0 &&
+                nextFetchEndDate &&
+                compareDateString(nextFetchEndDate, persistedLookbackStartDate) >= 0
+            );
 
-          return {
-            bars: mergedBars,
-            indicators: buildIndicators(mergedBars),
+            return {
+              bars: mergedBars,
+              indicators: buildIndicators(mergedBars),
+              timeframe: activeTimeframe,
+              loading: false,
+              loadingMoreBefore: false,
+              hasMoreBefore,
+              earliestLoadedAt: mergedBars[0]?.start_at ?? null,
+              lookbackStartDate: persistedLookbackStartDate,
+              nextFetchEndDate,
+              error: null,
+              updatedAt: new Date().toISOString(),
+              source: "REST",
+              barsDataSource: payload.dataSource
+            };
+          });
+        } catch (error: any) {
+          if (isStaleRequest()) {
+            return;
+          }
+          upsertDetail(cacheKey, (previous) => ({
+            bars: previous?.bars ?? [],
+            indicators: previous?.indicators ?? null,
             timeframe: activeTimeframe,
             loading: false,
-            loadingMoreBefore: false,
-            hasMoreBefore,
-            earliestLoadedAt: mergedBars[0]?.start_at ?? null,
-            lookbackStartDate: persistedLookbackStartDate,
-            nextFetchEndDate,
-            error: null,
-            updatedAt: new Date().toISOString(),
-            source: "REST",
-            barsDataSource: payload.dataSource
-          };
-        });
-      } catch (error: any) {
-        if (isStaleRequest()) {
-          return;
+            loadingMoreBefore: previous?.loadingMoreBefore ?? false,
+            hasMoreBefore: previous?.hasMoreBefore ?? false,
+            earliestLoadedAt: previous?.earliestLoadedAt ?? null,
+            lookbackStartDate: previous?.lookbackStartDate ?? lookbackStartDate,
+            nextFetchEndDate: previous?.nextFetchEndDate ?? null,
+            error: toUserFacingError({
+              error,
+              fallback: `Failed to load ${symbol}`
+            }),
+            updatedAt: previous?.updatedAt ?? null,
+            source: previous?.source ?? null,
+            barsDataSource: previous?.barsDataSource ?? null
+          }));
         }
-        upsertDetail(cacheKey, (previous) => ({
-          bars: previous?.bars ?? [],
-          indicators: previous?.indicators ?? null,
-          timeframe: activeTimeframe,
-          loading: false,
-          loadingMoreBefore: previous?.loadingMoreBefore ?? false,
-          hasMoreBefore: previous?.hasMoreBefore ?? false,
-          earliestLoadedAt: previous?.earliestLoadedAt ?? null,
-          lookbackStartDate: previous?.lookbackStartDate ?? lookbackStartDate,
-          nextFetchEndDate: previous?.nextFetchEndDate ?? null,
-          error: error?.message ?? `Failed to load ${symbol}`,
-          updatedAt: previous?.updatedAt ?? null,
-          source: previous?.source ?? null,
-          barsDataSource: previous?.barsDataSource ?? null
-        }));
+      } finally {
+        if (forceRequestKey) {
+          forceDetailInFlightRef.current.delete(forceRequestKey);
+        }
       }
     },
-    [token, touchDetailKey, upsertDetail]
+    [resolveIntradayAnchorDate, token, touchDetailKey, upsertDetail]
   );
 
   const loadMoreTickerHistory = React.useCallback(
@@ -501,7 +580,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       const activeTimeframe = timeframeRef.current;
       const activeSession = sessionRef.current;
       const resolvedSession = sessionKeyForTimeframe(activeTimeframe, activeSession);
-      if (!isIntradayTimeframe(activeTimeframe)) {
+      if (!isIntradayTimeframe(activeTimeframe) || activeTimeframe === "intraday") {
         return;
       }
 
@@ -599,7 +678,10 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
           earliestLoadedAt: previous?.earliestLoadedAt ?? existing.earliestLoadedAt,
           lookbackStartDate: previous?.lookbackStartDate ?? lookbackStartDate,
           nextFetchEndDate: previous?.nextFetchEndDate ?? existing.nextFetchEndDate,
-          error: error?.message ?? `Failed to load older ${symbol} bars`,
+          error: toUserFacingError({
+            error,
+            fallback: `Failed to load older ${symbol} bars`
+          }),
           updatedAt: previous?.updatedAt ?? existing.updatedAt,
           source: previous?.source ?? existing.source,
           barsDataSource: previous?.barsDataSource ?? existing.barsDataSource
@@ -640,10 +722,11 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
     if (barsPollRef.current === null) {
       barsPollRef.current = window.setInterval(() => {
         const symbol = activeTickerRef.current;
+        const activeTimeframe = timeframeRef.current;
         if (!symbol) return;
-        if (!isIntradayTimeframe(timeframeRef.current)) return;
+        if (!isIntradayTimeframe(activeTimeframe) || activeTimeframe === "intraday") return;
         void loadTickerDetailRef.current(symbol, true);
-      }, BARS_POLL_INTERVAL_MS);
+      }, KLINE_BARS_POLL_INTERVAL_MS);
     }
   }, []);
 
@@ -713,7 +796,12 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       setDegradedMode();
 
       if (message.message) {
-        setLastError(message.message);
+        setLastError(
+          toUserFacingError({
+            message: message.message,
+            fallback: "实时连接状态变更，已切换到延迟数据。"
+          })
+        );
       }
     },
     [setDegradedMode, stopDegradedPolling]
@@ -738,21 +826,31 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       }
 
       if (message.type === "system.error") {
-        const errorMessage = message.message ?? "stream error";
-        setLastError(message.code ? `${message.code}: ${errorMessage}` : errorMessage);
-      if (message.code === "STREAM_UPSTREAM_UNAVAILABLE") {
+        setLastError(
+          toUserFacingError({
+            code: message.code,
+            message: message.message,
+            fallback: "实时数据流暂不可用，已保留状态并等待恢复。"
+          })
+        );
+        if (message.code === "STREAM_UPSTREAM_UNAVAILABLE") {
           setDegradedMode();
         }
         return;
       }
 
-      if (shouldIgnoreMarketMessage(message)) {
+      if (
+        shouldIgnoreMarketMessage(message, {
+          allowedSymbols: desiredSubscriptionSetRef.current,
+          allowedChannels: streamChannelSet
+        })
+      ) {
         return;
       }
 
       applyStreamMarketMessage(message);
     },
-    [applyStreamMarketMessage, applySystemStatus, setDegradedMode]
+    [applyStreamMarketMessage, applySystemStatus, setDegradedMode, streamChannelSet]
   );
 
   const connectStream = React.useCallback(() => {
@@ -892,6 +990,7 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
 
   React.useEffect(() => {
     desiredSubscriptionsRef.current = desiredSubscriptions;
+    desiredSubscriptionSetRef.current = new Set(desiredSubscriptions);
     syncSubscriptions();
   }, [desiredSubscriptions, syncSubscriptions]);
 
@@ -991,6 +1090,20 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
   }, [activeTicker, activeSessionKey, loadTickerDetail, timeframe]);
 
   React.useEffect(() => {
+    if (!token || !activeTicker || timeframe !== "intraday") {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadTickerDetailRef.current(activeTicker, true);
+    }, INTRADAY_BARS_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [activeTicker, timeframe, token]);
+
+  React.useEffect(() => {
     if (!activeTicker) return;
     touchDetailKey(buildDetailCacheKey(activeTicker, timeframe, activeSessionKey));
   }, [activeTicker, activeSessionKey, timeframe, touchDetailKey]);
@@ -1019,7 +1132,12 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       await refreshSnapshots([symbol]);
       void loadTickerDetail(symbol, true);
     } catch (error: any) {
-      setWatchlistError(error?.message ?? "Failed to add ticker.");
+      setWatchlistError(
+        toUserFacingError({
+          error,
+          fallback: "Failed to add ticker."
+        })
+      );
     }
   }, [loadTickerDetail, refreshSnapshots, refreshWatchlist, tickerInput, token]);
 
@@ -1041,7 +1159,12 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         delete snapshotTsRef.current[symbol];
         await refreshWatchlist();
       } catch (error: any) {
-        setWatchlistError(error?.message ?? "Failed to delete ticker.");
+        setWatchlistError(
+          toUserFacingError({
+            error,
+            fallback: "Failed to delete ticker."
+          })
+        );
       }
     },
     [refreshWatchlist, removeDetailsBySymbol, token]

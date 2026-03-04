@@ -1,7 +1,7 @@
 import { type IndicatorBundle, type MarketBar, type MarketSnapshot } from "@/entities/market";
 import { type WatchlistItem } from "@/entities/watchlist";
 
-export type TimeframeKey = "1m" | "5m" | "15m" | "60m" | "day" | "week" | "month";
+export type TimeframeKey = "intraday" | "1m" | "5m" | "15m" | "60m" | "day" | "week" | "month";
 export type SessionKey = "regular" | "pre" | "night";
 export type StreamStatus =
   | "idle"
