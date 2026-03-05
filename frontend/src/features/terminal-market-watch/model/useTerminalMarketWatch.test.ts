@@ -10,6 +10,7 @@ import {
   resolveStreamWsBaseUrl,
   SESSION_OPTIONS,
   sessionKeyForTimeframe,
+  shouldEnableKlineAutoRefresh,
   shouldIgnoreMarketMessage,
   shouldStopDegradedPollingOnStatus,
   streamChannelsForRealtime,
@@ -455,6 +456,62 @@ describe("shouldStopDegradedPollingOnStatus", () => {
           message: null
         }
       )
+    ).toBe(false);
+  });
+});
+
+describe("shouldEnableKlineAutoRefresh", () => {
+  it("keeps minute K auto-refresh enabled whenever the market session is open", () => {
+    expect(
+      shouldEnableKlineAutoRefresh({
+        token: "token",
+        activeTicker: "AAPL",
+        timeframe: "1m",
+        isTradingSessionOpen: true
+      })
+    ).toBe(true);
+    expect(
+      shouldEnableKlineAutoRefresh({
+        token: "token",
+        activeTicker: "AAPL",
+        timeframe: "60m",
+        isTradingSessionOpen: true
+      })
+    ).toBe(true);
+  });
+
+  it("disables minute K auto-refresh when the session is closed or the timeframe is not kline", () => {
+    expect(
+      shouldEnableKlineAutoRefresh({
+        token: "token",
+        activeTicker: "AAPL",
+        timeframe: "intraday",
+        isTradingSessionOpen: true
+      })
+    ).toBe(false);
+    expect(
+      shouldEnableKlineAutoRefresh({
+        token: "token",
+        activeTicker: "AAPL",
+        timeframe: "day",
+        isTradingSessionOpen: true
+      })
+    ).toBe(false);
+    expect(
+      shouldEnableKlineAutoRefresh({
+        token: "token",
+        activeTicker: "AAPL",
+        timeframe: "5m",
+        isTradingSessionOpen: false
+      })
+    ).toBe(false);
+    expect(
+      shouldEnableKlineAutoRefresh({
+        token: null,
+        activeTicker: "AAPL",
+        timeframe: "5m",
+        isTradingSessionOpen: true
+      })
     ).toBe(false);
   });
 });

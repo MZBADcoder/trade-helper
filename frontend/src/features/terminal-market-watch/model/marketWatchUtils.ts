@@ -121,6 +121,18 @@ export function shouldStopDegradedPollingOnStatus(message: StreamStatusMessage):
   return message.connectionState === "connected";
 }
 
+export function shouldEnableKlineAutoRefresh(params: {
+  token: string | null | undefined;
+  activeTicker: string | null;
+  timeframe: TimeframeKey;
+  isTradingSessionOpen: boolean;
+}): boolean {
+  if (!params.token || !params.activeTicker || !params.isTradingSessionOpen) {
+    return false;
+  }
+  return isIntradayTimeframe(params.timeframe) && params.timeframe !== "intraday";
+}
+
 export function isMarketStreamWindowOpen(params: {
   delayMinutes: number;
   nowMs?: number;

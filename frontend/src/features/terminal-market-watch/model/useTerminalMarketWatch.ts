@@ -42,6 +42,7 @@ import {
   sessionKeyForTimeframe,
   resolveTradingChunkFetchRange,
   resolveTradingFetchRange,
+  shouldEnableKlineAutoRefresh,
   shouldIgnoreMarketMessage,
   shouldStopDegradedPollingOnStatus,
   sortBars,
@@ -706,6 +707,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       window.clearInterval(snapshotPollRef.current);
       snapshotPollRef.current = null;
     }
+  }, []);
+
+  const stopKlineAutoRefresh = React.useCallback(() => {
     if (barsPollRef.current !== null) {
       window.clearInterval(barsPollRef.current);
       barsPollRef.current = null;
@@ -718,7 +722,9 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
         void refreshSnapshotsRef.current();
       }, SNAPSHOT_POLL_INTERVAL_MS);
     }
+  }, []);
 
+  const startKlineAutoRefresh = React.useCallback(() => {
     if (barsPollRef.current === null) {
       barsPollRef.current = window.setInterval(() => {
         const symbol = activeTickerRef.current;
@@ -1102,6 +1108,26 @@ export function useTerminalMarketWatch(): TerminalMarketWatchViewModel {
       window.clearInterval(timer);
     };
   }, [activeTicker, timeframe, token]);
+
+  React.useEffect(() => {
+    if (
+      !shouldEnableKlineAutoRefresh({
+        token,
+        activeTicker,
+        timeframe,
+        isTradingSessionOpen
+      })
+    ) {
+      stopKlineAutoRefresh();
+      return;
+    }
+
+    startKlineAutoRefresh();
+
+    return () => {
+      stopKlineAutoRefresh();
+    };
+  }, [activeTicker, isTradingSessionOpen, startKlineAutoRefresh, stopKlineAutoRefresh, timeframe, token]);
 
   React.useEffect(() => {
     if (!activeTicker) return;
