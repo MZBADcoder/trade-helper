@@ -56,6 +56,7 @@ def market_bar_day_to_domain(model: MarketBarDayModel) -> MarketBar:
         vwap=model.vwap,
         trades=model.trades,
         source=model.source,
+        is_final=model.is_final,
     )
 
 
@@ -73,6 +74,7 @@ def market_bar_minute_to_domain(model: MarketBarMinuteModel) -> MarketBar:
         vwap=model.vwap,
         trades=model.trades,
         source=model.source,
+        is_final=model.is_final,
     )
 
 
@@ -107,6 +109,7 @@ def market_bar_to_day_row(bar: MarketBar, *, trade_date: date) -> dict:
         "volume": bar.volume,
         "vwap": bar.vwap,
         "trades": bar.trades,
+        "is_final": bar.is_final if bar.is_final is not None else True,
         "source": bar.source,
     }
 
@@ -123,6 +126,7 @@ def market_bar_to_minute_row(bar: MarketBar, *, trade_date: date) -> dict:
         "volume": bar.volume,
         "vwap": bar.vwap,
         "trades": bar.trades,
+        "is_final": bar.is_final if bar.is_final is not None else True,
         "source": bar.source,
     }
 

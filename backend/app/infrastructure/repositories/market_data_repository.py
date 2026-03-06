@@ -252,8 +252,10 @@ class SqlAlchemyMarketDataRepository:
                         "volume",
                         "vwap",
                         "trades",
+                        "is_final",
                         "source",
                     ],
+                    monotonic_true_columns={"is_final"},
                 ),
             )
             await self._session.execute(stmt)
@@ -284,8 +286,10 @@ class SqlAlchemyMarketDataRepository:
                         "volume",
                         "vwap",
                         "trades",
+                        "is_final",
                         "source",
                     ],
+                    monotonic_true_columns={"is_final"},
                 ),
             )
             await self._session.execute(stmt)
@@ -396,8 +400,21 @@ class SqlAlchemyMarketDataRepository:
             return
 
 
-def _update_columns(stmt, columns: list[str]) -> dict[str, object]:
-    return {column: getattr(stmt.excluded, column) for column in columns}
+def _update_columns(
+    stmt,
+    columns: list[str],
+    *,
+    monotonic_true_columns: set[str] | None = None,
+) -> dict[str, object]:
+    monotonic = monotonic_true_columns or set()
+    updates: dict[str, object] = {}
+    for column in columns:
+        incoming = getattr(stmt.excluded, column)
+        if column in monotonic:
+            updates[column] = stmt.table.c[column].is_(True) | incoming.is_(True)
+            continue
+        updates[column] = incoming
+    return updates
 
 
 _POSTGRES_MAX_BIND_PARAMS = 65535

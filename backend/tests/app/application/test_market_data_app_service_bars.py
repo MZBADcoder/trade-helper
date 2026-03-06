@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import insert
+
 from app.application.market_data.service import MarketDataApplicationService
 from app.domain.market_data.schemas import MarketBar
+from app.infrastructure.db.models.market_data import MarketBarMinuteModel
+from app.infrastructure.repositories.market_data_repository import _update_columns
 
 
 class FakeBarsRepo:
@@ -229,5 +234,118 @@ async def test_list_bars_minute_aggregation_skips_rebuild_when_agg_coverage_has_
     assert [bar.start_at for bar in result.bars] == bucket_starts
     assert result.data_source == "DB_AGG"
     assert repo.upserted_agg_bars == []
-    assert repo.list_minute_bars_calls == 0
+    assert repo.list_minute_bars_calls == 1
     assert uow.commit_calls == 0
+
+
+async def test_list_bars_minute_aggregation_keeps_cached_finalized_buckets_outside_rebuild() -> None:
+    minute_bars = [
+        MarketBar(
+            ticker="AMD",
+            timespan="minute",
+            multiplier=1,
+            start_at=datetime(2026, 2, 26, 14, 30, tzinfo=timezone.utc),
+            open=100.0,
+            high=101.0,
+            low=99.5,
+            close=100.5,
+            volume=1000,
+            source="DB",
+        ),
+        MarketBar(
+            ticker="AMD",
+            timespan="minute",
+            multiplier=1,
+            start_at=datetime(2026, 2, 26, 15, 0, tzinfo=timezone.utc),
+            open=100.5,
+            high=101.5,
+            low=100.2,
+            close=101.2,
+            volume=1200,
+            source="DB",
+        ),
+    ]
+    cached_agg = [
+        MarketBar(
+            ticker="AMD",
+            timespan="minute",
+            multiplier=60,
+            start_at=datetime(2026, 2, 26, 14, 30, tzinfo=timezone.utc),
+            end_at=datetime(2026, 2, 26, 15, 30, tzinfo=timezone.utc),
+            open=100.0,
+            high=101.5,
+            low=99.5,
+            close=101.2,
+            volume=2200,
+            source="DB_AGG",
+            is_final=True,
+        ),
+        MarketBar(
+            ticker="AMD",
+            timespan="minute",
+            multiplier=60,
+            start_at=datetime(2026, 2, 26, 15, 30, tzinfo=timezone.utc),
+            end_at=datetime(2026, 2, 26, 16, 30, tzinfo=timezone.utc),
+            open=101.2,
+            high=102.0,
+            low=100.9,
+            close=101.7,
+            volume=900,
+            source="DB_AGG",
+            is_final=True,
+        ),
+    ]
+    repo = FakeBarsRepo(minute_bars, minute_agg_bars=cached_agg)
+    uow = FakeBarsUoW(repo)
+    service = MarketDataApplicationService(
+        uow=uow,  # type: ignore[arg-type]
+        massive_client=None,
+        trading_calendar=FakeBarsTradingCalendar(),  # type: ignore[arg-type]
+    )
+
+    result = await service.list_bars_with_meta(
+        ticker="AMD",
+        timespan="minute",
+        multiplier=60,
+        session="regular",
+        start_date=date(2026, 2, 26),
+        end_date=date(2026, 2, 26),
+        limit=500,
+        enforce_range_limit=True,
+    )
+
+    assert [bar.start_at for bar in result.bars] == [
+        datetime(2026, 2, 26, 14, 30, tzinfo=timezone.utc),
+        datetime(2026, 2, 26, 15, 30, tzinfo=timezone.utc),
+    ]
+    assert len(repo.upserted_agg_bars) == 1
+    assert repo.upserted_agg_bars[0].start_at == datetime(2026, 2, 26, 14, 30, tzinfo=timezone.utc)
+    assert uow.commit_calls == 1
+
+
+def test_update_columns_keeps_is_final_monotonic() -> None:
+    stmt = insert(MarketBarMinuteModel).values(
+        ticker="AMD",
+        trade_date=date(2026, 2, 26),
+        start_at=datetime(2026, 2, 26, 14, 30, tzinfo=timezone.utc),
+        open=100.0,
+        high=101.0,
+        low=99.5,
+        close=100.5,
+        volume=1000.0,
+        vwap=None,
+        trades=10,
+        is_final=False,
+        source="DB",
+    )
+
+    compiled = str(
+        _update_columns(stmt, ["is_final"], monotonic_true_columns={"is_final"})["is_final"].compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    ).lower()
+
+    assert "excluded.is_final" in compiled
+    assert "is true" in compiled
+    assert "or" in compiled

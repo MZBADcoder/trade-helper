@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 import re
 from datetime import date, datetime, time, timedelta, timezone
@@ -24,7 +26,6 @@ from app.domain.market_data.aggregation import (
     aggregate_bucket,
     aggregate_minute_bars,
     market_trade_date,
-    resolve_bucket_bounds,
     resolve_current_open_bucket,
 )
 from app.domain.market_data.schemas import MarketBar, MarketSnapshot
@@ -36,6 +37,7 @@ _TICKER_PATTERN = re.compile(r"^[A-Z.]{1,15}$")
 _SUPPORTED_MINUTE_AGG_MULTIPLIERS = {5, 15, 60}
 _SUPPORTED_BAR_SESSIONS = {"regular", "pre", "night"}
 _PREMARKET_OPEN_TIME = time(4, 0)
+_MAX_TRADING_DAY_BACKTRACK_DAYS = 370
 
 
 @dataclass(slots=True)
@@ -75,6 +77,8 @@ class MarketDataApplicationService:
         self._uow = uow
         self._massive_client = massive_client
         self._trading_calendar = trading_calendar or TradingCalendar(massive_client=massive_client)
+        self._baseline_refresh_tasks: dict[tuple[str, str, tuple[tuple[date, date], ...]], asyncio.Task[list[MarketBar]]] = {}
+        self._baseline_refresh_tasks_lock = asyncio.Lock()
 
     async def list_bars(
         self,
@@ -337,97 +341,41 @@ class MarketDataApplicationService:
         return end_date - timedelta(days=settings.market_data_daily_lookback_days)
 
     async def _list_day_baseline(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
-        async with self._uow as uow:
-            repo = _require_market_data_repo(uow)
-            coverage = await repo.get_day_range_coverage(ticker=query.ticker)
-            if _coverage_contains(coverage=coverage, start_at=query.start_at, end_at=query.end_at):
-                return MarketBarsQueryResult(
-                    bars=await repo.list_day_bars(
-                        ticker=query.ticker,
-                        start_at=query.start_at,
-                        end_at=query.end_at,
-                        limit=query.limit,
-                    ),
-                    data_source="DB",
-                    partial_range=False,
-                )
-
-            fetched = await self._fetch_from_massive(
-                ticker=query.ticker,
-                timespan="day",
-                multiplier=1,
-                start_date=query.start_date,
-                end_date=query.end_date,
-            )
-            if fetched:
-                await repo.upsert_day_bars(fetched)
-                await uow.commit()
-
-            bars = await repo.list_day_bars(
-                ticker=query.ticker,
-                start_at=query.start_at,
-                end_at=query.end_at,
-                limit=query.limit,
-            )
-            return MarketBarsQueryResult(
-                bars=bars,
-                data_source="REST" if fetched else "DB",
-                partial_range=False,
-            )
+        now = datetime.now(tz=timezone.utc)
+        bars, fetched = await self._refresh_day_baseline(query=query, now=now)
+        return MarketBarsQueryResult(
+            bars=_apply_limit(bars, limit=query.limit),
+            data_source="REST" if fetched else "DB",
+            partial_range=False,
+        )
 
     async def _list_minute_baseline(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
-        async with self._uow as uow:
-            repo = _require_market_data_repo(uow)
-            coverage = await repo.get_minute_range_coverage(ticker=query.ticker)
-            if _coverage_contains(coverage=coverage, start_at=query.start_at, end_at=query.end_at):
-                bars = await repo.list_minute_bars(
-                    ticker=query.ticker,
-                    start_at=query.start_at,
-                    end_at=query.end_at,
-                    limit=None,
-                    session=query.session,
-                )
-                return MarketBarsQueryResult(
-                    bars=_apply_limit(bars, limit=query.limit),
-                    data_source="DB",
-                    partial_range=False,
-                )
-
-            fetched = await self._fetch_from_massive(
-                ticker=query.ticker,
-                timespan="minute",
-                multiplier=1,
-                start_date=query.start_date,
-                end_date=query.end_date,
-            )
-            if fetched:
-                await repo.upsert_minute_bars(fetched)
-                await uow.commit()
-
-            bars = await repo.list_minute_bars(
-                ticker=query.ticker,
-                start_at=query.start_at,
-                end_at=query.end_at,
-                limit=None,
-                session=query.session,
-            )
-            return MarketBarsQueryResult(
-                bars=_apply_limit(bars, limit=query.limit),
-                data_source="REST" if fetched else "DB",
-                partial_range=False,
-            )
+        now = datetime.now(tz=timezone.utc)
+        bars, fetched = await self._refresh_minute_baseline(query=query, now=now)
+        return MarketBarsQueryResult(
+            bars=_apply_limit(bars, limit=query.limit),
+            data_source="REST" if fetched else "DB",
+            partial_range=False,
+        )
 
     async def _list_minute_aggregated(self, *, query: _BarsQuery) -> MarketBarsQueryResult:
         if query.session != "regular":
             return await self._list_direct_fallback(query=query)
 
-        await self._ensure_minute_baseline_coverage(query=query)
         now = datetime.now(tz=timezone.utc)
+        minute_bars, _ = await self._refresh_minute_baseline(query=query, now=now)
 
         async with self._uow as uow:
             repo = _require_market_data_repo(uow)
-
-            finalized = await repo.list_minute_agg_bars(
+            rebuilt_finalized = aggregate_minute_bars(
+                ticker=query.ticker,
+                multiplier=query.multiplier,
+                bars=minute_bars,
+                source="DB_AGG",
+                now=now,
+                include_unfinished=False,
+            )
+            existing_finalized = await repo.list_minute_agg_bars(
                 ticker=query.ticker,
                 multiplier=query.multiplier,
                 start_at=query.start_at,
@@ -435,39 +383,12 @@ class MarketDataApplicationService:
                 final_only=True,
                 limit=None,
             )
-
-            agg_coverage = await repo.get_minute_agg_range_coverage(
-                ticker=query.ticker,
-                multiplier=query.multiplier,
-            )
-            agg_coverage_end_at = _minute_agg_coverage_end_at(
-                end_at=query.end_at,
-                multiplier=query.multiplier,
-            )
-            if not _coverage_contains(
-                coverage=agg_coverage,
-                start_at=query.start_at,
-                end_at=agg_coverage_end_at,
-            ):
-                minute_bars = await repo.list_minute_bars(
-                    ticker=query.ticker,
-                    start_at=query.start_at,
-                    end_at=query.end_at,
-                    limit=None,
-                    session=query.session,
-                )
-                rebuilt = aggregate_minute_bars(
-                    ticker=query.ticker,
-                    multiplier=query.multiplier,
-                    bars=minute_bars,
-                    source="DB_AGG",
-                    now=now,
-                    include_unfinished=False,
-                )
-                if rebuilt:
-                    finalized = _merge_bars_by_start_at(existing=finalized, incoming=rebuilt)
-                    await repo.upsert_minute_agg_bars(finalized)
-                    await uow.commit()
+            finalized = existing_finalized
+            if rebuilt_finalized:
+                finalized = _merge_bars_by_start_at(existing=existing_finalized, incoming=rebuilt_finalized)
+            if rebuilt_finalized and _bars_differ(existing=existing_finalized, incoming=rebuilt_finalized):
+                await repo.upsert_minute_agg_bars(rebuilt_finalized)
+                await uow.commit()
 
             mixed_bucket = None
             if self._trading_calendar.is_trading_day(target_date=market_trade_date(point=now)):
@@ -487,11 +408,11 @@ class MarketDataApplicationService:
                         query.end_at + timedelta(microseconds=1),
                     )
                     if realtime_cutoff > bucket_start:
-                        minute_items = await repo.list_minute_bars_for_bucket(
-                            ticker=query.ticker,
-                            bucket_start_at=bucket_start,
-                            bucket_end_at=realtime_cutoff,
-                        )
+                        minute_items = [
+                            bar
+                            for bar in minute_bars
+                            if bucket_start <= bar.start_at < realtime_cutoff
+                        ]
                         realtime_item = aggregate_bucket(
                             ticker=query.ticker,
                             multiplier=query.multiplier,
@@ -541,25 +462,205 @@ class MarketDataApplicationService:
             partial_range=False,
         )
 
-    async def _ensure_minute_baseline_coverage(self, *, query: _BarsQuery) -> None:
+    async def _refresh_day_baseline(
+        self,
+        *,
+        query: _BarsQuery,
+        now: datetime,
+    ) -> tuple[list[MarketBar], bool]:
         async with self._uow as uow:
             repo = _require_market_data_repo(uow)
-            coverage = await repo.get_minute_range_coverage(ticker=query.ticker)
-            if _coverage_contains(coverage=coverage, start_at=query.start_at, end_at=query.end_at):
-                return
-
-            fetched = await self._fetch_from_massive(
+            existing = await repo.list_day_bars(
                 ticker=query.ticker,
-                timespan="minute",
-                multiplier=1,
-                start_date=query.start_date,
-                end_date=query.end_date,
+                start_at=query.start_at,
+                end_at=query.end_at,
+                limit=None,
+            )
+            refresh_windows = _resolve_day_refresh_windows(
+                query=query,
+                existing_bars=existing,
+                now=now,
+                trading_calendar=self._trading_calendar,
+            )
+
+        if not refresh_windows:
+            return existing, False
+
+        async def _refresh() -> list[MarketBar]:
+            fetched = await self._fetch_baseline_windows(
+                ticker=query.ticker,
+                timespan="day",
+                refresh_windows=refresh_windows,
             )
             if not fetched:
-                return
+                return []
 
-            await repo.upsert_minute_bars(fetched)
-            await uow.commit()
+            refreshed = _with_day_finality(
+                bars=fetched,
+                now=now,
+                trading_calendar=self._trading_calendar,
+                finalize_trade_days=_day_finalize_trade_days(),
+            )
+            async with self._uow as refresh_uow:
+                refresh_repo = _require_market_data_repo(refresh_uow)
+                await refresh_repo.upsert_day_bars(refreshed)
+                await refresh_uow.commit()
+            return refreshed
+
+        try:
+            refreshed = await self._run_baseline_refresh_once(
+                key=_baseline_refresh_key(
+                    ticker=query.ticker,
+                    timespan="day",
+                    refresh_windows=refresh_windows,
+                ),
+                work=_refresh,
+            )
+        except (MarketDataRateLimitedError, MarketDataUpstreamUnavailableError):
+            if _has_complete_day_cache(
+                query=query,
+                bars=existing,
+                trading_calendar=self._trading_calendar,
+            ):
+                return existing, False
+            raise
+        if not refreshed:
+            return existing, False
+
+        incoming = _filter_bars_by_range(
+            bars=refreshed,
+            start_at=query.start_at,
+            end_at=query.end_at,
+        )
+        return _merge_bars_by_start_at(existing=existing, incoming=incoming), True
+
+    async def _refresh_minute_baseline(
+        self,
+        *,
+        query: _BarsQuery,
+        now: datetime,
+    ) -> tuple[list[MarketBar], bool]:
+        async with self._uow as uow:
+            repo = _require_market_data_repo(uow)
+            existing = await repo.list_minute_bars(
+                ticker=query.ticker,
+                start_at=query.start_at,
+                end_at=query.end_at,
+                limit=None,
+                session=query.session,
+            )
+            refresh_windows = _resolve_minute_refresh_windows(
+                query=query,
+                existing_bars=existing,
+                now=now,
+                trading_calendar=self._trading_calendar,
+            )
+
+        if not refresh_windows:
+            return existing, False
+
+        async def _refresh() -> list[MarketBar]:
+            fetched = await self._fetch_baseline_windows(
+                ticker=query.ticker,
+                timespan="minute",
+                refresh_windows=refresh_windows,
+            )
+            if not fetched:
+                return []
+
+            refreshed = _with_minute_finality(
+                bars=fetched,
+                now=now,
+                finalize_delay_minutes=_minute_finalize_delay_minutes(),
+            )
+            async with self._uow as refresh_uow:
+                refresh_repo = _require_market_data_repo(refresh_uow)
+                await refresh_repo.upsert_minute_bars(refreshed)
+                await refresh_uow.commit()
+            return refreshed
+
+        try:
+            refreshed = await self._run_baseline_refresh_once(
+                key=_baseline_refresh_key(
+                    ticker=query.ticker,
+                    timespan="minute",
+                    refresh_windows=refresh_windows,
+                ),
+                work=_refresh,
+            )
+        except (MarketDataRateLimitedError, MarketDataUpstreamUnavailableError):
+            if _has_complete_minute_cache(
+                query=query,
+                bars=existing,
+                now=now,
+                trading_calendar=self._trading_calendar,
+            ):
+                return existing, False
+            raise
+        if not refreshed:
+            return existing, False
+
+        incoming = _filter_bars_by_session(
+            bars=_filter_bars_by_range(
+                bars=refreshed,
+                start_at=query.start_at,
+                end_at=query.end_at,
+            ),
+            session=query.session,
+        )
+        return _merge_bars_by_start_at(existing=existing, incoming=incoming), True
+
+    async def _fetch_baseline_windows(
+        self,
+        *,
+        ticker: str,
+        timespan: str,
+        refresh_windows: list[tuple[date, date]],
+    ) -> list[MarketBar]:
+        fetched: list[MarketBar] = []
+        for start_date, end_date in refresh_windows:
+            incoming = await self._fetch_from_massive(
+                ticker=ticker,
+                timespan=timespan,
+                multiplier=1,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            if incoming:
+                fetched = _merge_bars_by_start_at(existing=fetched, incoming=incoming)
+        return fetched
+
+    async def _run_baseline_refresh_once(
+        self,
+        *,
+        key: tuple[str, str, tuple[tuple[date, date], ...]],
+        work: Callable[[], Awaitable[list[MarketBar]]],
+    ) -> list[MarketBar]:
+        async with self._baseline_refresh_tasks_lock:
+            task = self._baseline_refresh_tasks.get(key)
+            if task is None:
+                task = asyncio.create_task(work())
+                self._baseline_refresh_tasks[key] = task
+                task.add_done_callback(
+                    lambda completed, refresh_key=key: asyncio.create_task(
+                        self._clear_baseline_refresh_task(
+                            key=refresh_key,
+                            task=completed,
+                        )
+                    )
+                )
+        assert task is not None
+        return await asyncio.shield(task)
+
+    async def _clear_baseline_refresh_task(
+        self,
+        *,
+        key: tuple[str, str, tuple[tuple[date, date], ...]],
+        task: asyncio.Task[list[MarketBar]],
+    ) -> None:
+        async with self._baseline_refresh_tasks_lock:
+            if self._baseline_refresh_tasks.get(key) is task:
+                self._baseline_refresh_tasks.pop(key, None)
 
     async def _fetch_from_massive(
         self,
@@ -769,20 +870,490 @@ def _require_market_data_repo(uow: SqlAlchemyUnitOfWork):
     return uow.market_data_repo
 
 
-def _coverage_contains(
+def _resolve_day_refresh_windows(
     *,
-    coverage: tuple[datetime, datetime] | None,
-    start_at: datetime,
-    end_at: datetime,
+    query: _BarsQuery,
+    existing_bars: list[MarketBar],
+    now: datetime,
+    trading_calendar: TradingCalendar,
+) -> list[tuple[date, date]]:
+    finalize_trade_days = _day_finalize_trade_days()
+    existing_by_trade_date = {_day_bar_trade_date(start_at=bar.start_at): bar for bar in existing_bars}
+    refresh_dates: list[date] = []
+    for trade_date in _list_query_trade_dates(
+        start_date=query.start_date,
+        end_date=query.end_date,
+        trading_calendar=trading_calendar,
+    ):
+        current = existing_by_trade_date.get(trade_date)
+        if current is None:
+            refresh_dates.append(trade_date)
+            continue
+        if not _is_day_trade_date_final_state_valid(
+            current=current,
+            trade_date=trade_date,
+            now=now,
+            trading_calendar=trading_calendar,
+            finalize_trade_days=finalize_trade_days,
+        ):
+            refresh_dates.append(trade_date)
+            continue
+        if _is_day_trade_date_refresh_due(
+            current=current,
+            trade_date=trade_date,
+            now=now,
+            trading_calendar=trading_calendar,
+            finalize_trade_days=finalize_trade_days,
+        ):
+            refresh_dates.append(trade_date)
+    return _group_contiguous_dates(dates=refresh_dates)
+
+
+def _resolve_minute_refresh_windows(
+    *,
+    query: _BarsQuery,
+    existing_bars: list[MarketBar],
+    now: datetime,
+    trading_calendar: TradingCalendar,
+) -> list[tuple[date, date]]:
+    finalize_delay_minutes = _minute_finalize_delay_minutes()
+    existing_by_trade_date: dict[date, list[MarketBar]] = {}
+    for bar in existing_bars:
+        trade_date = market_trade_date(point=bar.start_at)
+        existing_by_trade_date.setdefault(trade_date, []).append(bar)
+
+    refresh_dates: list[date] = []
+    for trade_date in _list_query_trade_dates(
+        start_date=query.start_date,
+        end_date=query.end_date,
+        trading_calendar=trading_calendar,
+    ):
+        items = existing_by_trade_date.get(trade_date, [])
+        if not items:
+            if (
+                _expected_minute_session_bar_count(
+                    session=query.session,
+                    trade_date=trade_date,
+                    trading_calendar=trading_calendar,
+                    now=now,
+                )
+                > 0
+            ):
+                refresh_dates.append(trade_date)
+            continue
+        if any(
+            not _is_minute_bar_final_state_valid(
+                bar=bar,
+                now=now,
+                finalize_delay_minutes=finalize_delay_minutes,
+            )
+            for bar in items
+        ):
+            refresh_dates.append(trade_date)
+            continue
+        if not _has_complete_minute_session_cache(
+            session=query.session,
+            trade_date=trade_date,
+            bars=items,
+            trading_calendar=trading_calendar,
+            now=now,
+        ):
+            refresh_dates.append(trade_date)
+            continue
+        if _is_minute_session_trade_date_mutable(
+            session=query.session,
+            trade_date=trade_date,
+            now=now,
+        ):
+            refresh_dates.append(trade_date)
+    return _group_contiguous_dates(dates=refresh_dates)
+
+
+def _with_day_finality(
+    *,
+    bars: list[MarketBar],
+    now: datetime,
+    trading_calendar: TradingCalendar,
+    finalize_trade_days: int,
+) -> list[MarketBar]:
+    return [
+        replace(
+            bar,
+            is_final=_is_day_trade_date_confirmation_due(
+                trade_date=_day_bar_trade_date(start_at=bar.start_at),
+                now=now,
+                trading_calendar=trading_calendar,
+                finalize_trade_days=finalize_trade_days,
+            ),
+        )
+        for bar in bars
+    ]
+
+
+def _with_minute_finality(
+    *,
+    bars: list[MarketBar],
+    now: datetime,
+    finalize_delay_minutes: int,
+) -> list[MarketBar]:
+    return [
+        replace(
+            bar,
+            is_final=_is_minute_bar_confirmation_due(
+                bar=bar,
+                now=now,
+                finalize_delay_minutes=finalize_delay_minutes,
+            ),
+        )
+        for bar in bars
+    ]
+
+
+def _bars_differ(*, existing: list[MarketBar], incoming: list[MarketBar]) -> bool:
+    if len(existing) != len(incoming):
+        return True
+    return [_bar_signature(bar) for bar in existing] != [_bar_signature(bar) for bar in incoming]
+
+
+def _bar_signature(bar: MarketBar) -> tuple[object, ...]:
+    return (
+        bar.start_at,
+        bar.end_at,
+        bar.is_final,
+        _round_float(bar.open),
+        _round_float(bar.high),
+        _round_float(bar.low),
+        _round_float(bar.close),
+        _round_float(bar.volume),
+        _round_optional_float(bar.vwap),
+        bar.trades,
+    )
+
+
+def _round_float(value: float) -> float:
+    return round(float(value), 10)
+
+
+def _round_optional_float(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 10)
+
+
+def _list_query_trade_dates(
+    *,
+    start_date: date,
+    end_date: date,
+    trading_calendar: TradingCalendar,
+) -> list[date]:
+    result: list[date] = []
+    cursor = start_date
+    while cursor <= end_date:
+        if trading_calendar.is_trading_day(target_date=cursor):
+            result.append(cursor)
+        cursor += timedelta(days=1)
+    return result
+
+
+def _group_contiguous_dates(*, dates: list[date]) -> list[tuple[date, date]]:
+    ordered = sorted(set(dates))
+    if not ordered:
+        return []
+
+    windows: list[tuple[date, date]] = []
+    start = ordered[0]
+    end = ordered[0]
+    for current in ordered[1:]:
+        if current == end + timedelta(days=1):
+            end = current
+            continue
+        windows.append((start, end))
+        start = current
+        end = current
+    windows.append((start, end))
+    return windows
+
+
+def _baseline_refresh_key(
+    *,
+    ticker: str,
+    timespan: str,
+    refresh_windows: list[tuple[date, date]],
+) -> tuple[str, str, tuple[tuple[date, date], ...]]:
+    return ticker, timespan, tuple(refresh_windows)
+
+
+def _day_bar_trade_date(*, start_at: datetime) -> date:
+    if start_at.tzinfo is None:
+        return start_at.date()
+    return start_at.astimezone(timezone.utc).date()
+
+
+def _day_finalize_trade_days() -> int:
+    return max(1, int(settings.market_data_day_finalize_trade_days))
+
+
+def _minute_finalize_delay_minutes() -> int:
+    return normalized_delay_minutes(settings.market_data_minute_finalize_delay_minutes)
+
+
+def _is_day_trade_date_final_state_valid(
+    *,
+    current: MarketBar,
+    trade_date: date,
+    now: datetime,
+    trading_calendar: TradingCalendar,
+    finalize_trade_days: int,
 ) -> bool:
-    if coverage is None:
+    should_be_final = _is_day_trade_date_confirmation_due(
+        trade_date=trade_date,
+        now=now,
+        trading_calendar=trading_calendar,
+        finalize_trade_days=finalize_trade_days,
+    )
+    return current.is_final is should_be_final
+
+
+def _is_day_trade_date_refresh_due(
+    *,
+    current: MarketBar,
+    trade_date: date,
+    now: datetime,
+    trading_calendar: TradingCalendar,
+    finalize_trade_days: int,
+) -> bool:
+    if current.is_final is not True:
+        return _is_day_trade_date_current(
+            trade_date=trade_date,
+            now=now,
+            trading_calendar=trading_calendar,
+        ) or _is_day_trade_date_confirmation_due(
+            trade_date=trade_date,
+            now=now,
+            trading_calendar=trading_calendar,
+            finalize_trade_days=finalize_trade_days,
+        )
+    return not _is_day_trade_date_confirmation_due(
+        trade_date=trade_date,
+        now=now,
+        trading_calendar=trading_calendar,
+        finalize_trade_days=finalize_trade_days,
+    )
+
+
+def _is_day_trade_date_current(
+    *,
+    trade_date: date,
+    now: datetime,
+    trading_calendar: TradingCalendar,
+) -> bool:
+    return trade_date == _align_on_or_before(
+        target_date=market_trade_date(point=now),
+        trading_calendar=trading_calendar,
+    )
+
+
+def _is_day_trade_date_confirmation_due(
+    *,
+    trade_date: date,
+    now: datetime,
+    trading_calendar: TradingCalendar,
+    finalize_trade_days: int,
+) -> bool:
+    current_trade_date = _align_on_or_before(
+        target_date=market_trade_date(point=now),
+        trading_calendar=trading_calendar,
+    )
+    confirmation_trade_date = trading_calendar.shift_trading_day(
+        target_date=trade_date,
+        trading_days=finalize_trade_days,
+    )
+    return current_trade_date >= confirmation_trade_date
+
+
+def _align_on_or_before(*, target_date: date, trading_calendar: TradingCalendar) -> date:
+    align = getattr(trading_calendar, "align_on_or_before", None)
+    if callable(align):
+        return align(target_date=target_date)
+
+    cursor = target_date
+    for _ in range(_MAX_TRADING_DAY_BACKTRACK_DAYS):
+        if trading_calendar.is_trading_day(target_date=cursor):
+            return cursor
+        cursor -= timedelta(days=1)
+    raise ValueError("Trading calendar could not align target date on or before requested date")
+
+
+def _is_minute_bar_final_state_valid(
+    *,
+    bar: MarketBar,
+    now: datetime,
+    finalize_delay_minutes: int,
+) -> bool:
+    should_be_final = _is_minute_bar_confirmation_due(
+        bar=bar,
+        now=now,
+        finalize_delay_minutes=finalize_delay_minutes,
+    )
+    return bar.is_final is should_be_final
+
+
+def _is_minute_bar_confirmation_due(
+    *,
+    bar: MarketBar,
+    now: datetime,
+    finalize_delay_minutes: int,
+) -> bool:
+    end_at = bar.start_at + timedelta(minutes=bar.multiplier)
+    confirmation_at = max(
+        end_at,
+        bar.start_at + timedelta(minutes=finalize_delay_minutes),
+    )
+    return confirmation_at <= now
+
+
+def _is_minute_session_trade_date_mutable(
+    *,
+    session: str,
+    trade_date: date,
+    now: datetime,
+) -> bool:
+    if trade_date != market_trade_date(point=now):
         return False
-    return coverage[0] <= start_at and coverage[1] >= end_at
+
+    local_time = now.astimezone(MARKET_TIMEZONE).time()
+    if session == "regular":
+        return MARKET_OPEN_TIME <= local_time < MARKET_CLOSE_TIME
+    if session == "pre":
+        return _PREMARKET_OPEN_TIME <= local_time < MARKET_OPEN_TIME
+    if session == "night":
+        return local_time >= MARKET_CLOSE_TIME or local_time < _PREMARKET_OPEN_TIME
+    return False
 
 
-def _minute_agg_coverage_end_at(*, end_at: datetime, multiplier: int) -> datetime:
-    bucket_start, _ = resolve_bucket_bounds(point=end_at, multiplier=multiplier)
-    return bucket_start
+def _has_complete_minute_session_cache(
+    *,
+    session: str,
+    trade_date: date,
+    bars: list[MarketBar],
+    trading_calendar: TradingCalendar,
+    now: datetime | None = None,
+) -> bool:
+    expected = _expected_minute_session_bar_count(
+        session=session,
+        trade_date=trade_date,
+        trading_calendar=trading_calendar,
+        now=now,
+    )
+    if expected <= 0:
+        return True
+    observed = {bar.start_at for bar in bars}
+    return len(observed) >= expected
+
+
+def _expected_minute_session_bar_count(
+    *,
+    session: str,
+    trade_date: date,
+    trading_calendar: TradingCalendar,
+    now: datetime | None = None,
+) -> int:
+    if now is not None and trade_date == market_trade_date(point=now):
+        local_now = now.astimezone(MARKET_TIMEZONE)
+        if session == "regular":
+            session_bounds = trading_calendar.session_bounds(target_date=trade_date)
+            if session_bounds is None:
+                opened_at = datetime.combine(trade_date, MARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
+                closed_at = datetime.combine(trade_date, MARKET_CLOSE_TIME, tzinfo=MARKET_TIMEZONE)
+            else:
+                opened_at, closed_at = session_bounds
+            return _completed_session_minutes(start_at=opened_at, end_at=closed_at, point=local_now)
+        if session == "pre":
+            opened_at = datetime.combine(trade_date, _PREMARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
+            closed_at = datetime.combine(trade_date, MARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
+            return _completed_session_minutes(start_at=opened_at, end_at=closed_at, point=local_now)
+        if session == "night":
+            overnight_start = datetime.combine(trade_date, time.min, tzinfo=MARKET_TIMEZONE)
+            overnight_end = datetime.combine(trade_date, _PREMARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
+            post_close_start = datetime.combine(trade_date, MARKET_CLOSE_TIME, tzinfo=MARKET_TIMEZONE)
+            post_close_end = datetime.combine(trade_date + timedelta(days=1), time.min, tzinfo=MARKET_TIMEZONE)
+            return _completed_session_minutes(
+                start_at=overnight_start,
+                end_at=overnight_end,
+                point=local_now,
+            ) + _completed_session_minutes(
+                start_at=post_close_start,
+                end_at=post_close_end,
+                point=local_now,
+            )
+    if session == "regular":
+        session_bounds = trading_calendar.session_bounds(target_date=trade_date)
+        if session_bounds is None:
+            opened_at = datetime.combine(trade_date, MARKET_OPEN_TIME, tzinfo=MARKET_TIMEZONE)
+            closed_at = datetime.combine(trade_date, MARKET_CLOSE_TIME, tzinfo=MARKET_TIMEZONE)
+        else:
+            opened_at, closed_at = session_bounds
+        return max(0, int((closed_at - opened_at).total_seconds() // 60))
+    if session == "pre":
+        return 330
+    if session == "night":
+        return 720
+    return 0
+
+
+def _completed_session_minutes(*, start_at: datetime, end_at: datetime, point: datetime) -> int:
+    if point <= start_at:
+        return 0
+    effective_end = min(point, end_at)
+    if effective_end <= start_at:
+        return 0
+    return max(0, int((effective_end - start_at).total_seconds() // 60))
+
+
+def _has_complete_day_cache(
+    *,
+    query: _BarsQuery,
+    bars: list[MarketBar],
+    trading_calendar: TradingCalendar,
+) -> bool:
+    expected = set(
+        _list_query_trade_dates(
+            start_date=query.start_date,
+            end_date=query.end_date,
+            trading_calendar=trading_calendar,
+        )
+    )
+    observed = {_day_bar_trade_date(start_at=bar.start_at) for bar in bars}
+    return expected.issubset(observed)
+
+
+def _has_complete_minute_cache(
+    *,
+    query: _BarsQuery,
+    bars: list[MarketBar],
+    now: datetime,
+    trading_calendar: TradingCalendar,
+) -> bool:
+    by_trade_date: dict[date, list[MarketBar]] = {}
+    for bar in bars:
+        trade_date = market_trade_date(point=bar.start_at)
+        by_trade_date.setdefault(trade_date, []).append(bar)
+
+    for trade_date in _list_query_trade_dates(
+        start_date=query.start_date,
+        end_date=query.end_date,
+        trading_calendar=trading_calendar,
+    ):
+        items = by_trade_date.get(trade_date, [])
+        if not _has_complete_minute_session_cache(
+            session=query.session,
+            trade_date=trade_date,
+            bars=items,
+            trading_calendar=trading_calendar,
+            now=now,
+        ):
+            return False
+    return True
 
 
 def _ranges_intersect(

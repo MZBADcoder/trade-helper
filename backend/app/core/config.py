@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     )
     market_data_daily_lookback_days: int = 730
     market_data_intraday_lookback_days: int = 5
+    market_data_minute_finalize_delay_minutes: int = 5
+    market_data_day_finalize_trade_days: int = 1
     market_data_enable_direct_fallback: bool = True
     market_data_minute_retention_trade_days: int = 10
     market_stream_max_symbols_per_connection: int = 100

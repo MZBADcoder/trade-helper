@@ -29,6 +29,8 @@
 - [ ] MARKET-SNAPSHOTS 优化：将交易日盘中 watchlist 的 `change/change_pct` 改为“WS 最新价 + DB `prev_close` 实时重算”全链路口径（当前已完成非交易日 DB 基准回退）。
 - [ ] MARKET-BARS-WS 后续：`delay=0` 下分钟 K 停更已通过“独立 K 线自动 refresh”止血；后续仍需评估将 WS `aggregate` 接入 detail bars 增量合并，减少对 REST 补拉的依赖。
 - [ ] MARKET-BARS-GAP-FILL 后续：`bars` 读取链路仍使用 `min/max coverage` 粗判；后续需补齐“先用 DB immutable 数据，再只回源缺口”的 gap-aware 覆盖判断与补齐策略。
+- [ ] MARKET-BARS-FINALITY 收尾：当前 `bars` 已改为 `is_final` 驱动的“DB 优先 + mutable trade-date 刷新”，但 baseline 仍按 trade-date 粒度补窗；后续需继续下钻到真正的 bucket/day gap-aware 识别，避免同日局部缺口只能按整日刷新。
+- [ ] MARKET-BARS-FINALITY 收尾：新增 `is_final` 迁移当前只会强制回刷“部署当天”的旧 baseline 数据；若要清理部署前可能残留的历史 partial bars，需追加一次性 backfill/repair 方案。
 - [ ] DEMO-REPLAY 后续项：评估将 `/demo` 的 mock 回放窗口从“纯后端生成”升级为“真实历史数据抽样 + mock 增量拼接”，以便逐步接近生产链路。
 - [ ] SESSION-SECURITY 后续项：开发阶段暂保留前端 `localStorage` token；后续单独评估并实施更安全的 session 承载方案（如 HttpOnly Cookie / memory-only token + refresh 流程）。
 - [ ] HTTP-ASYNC 收尾：持续跟踪 Massive 官方 Python SDK 是否提供原生 async REST client；若可用，替换当前 `to_thread` 过渡适配层。

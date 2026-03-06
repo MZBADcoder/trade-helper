@@ -24,6 +24,7 @@ class MarketBarDayModel(Base):
     vwap: Mapped[float | None] = mapped_column(Float, nullable=True)
     trades: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    is_final: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     source: Mapped[str] = mapped_column(String(32), default="massive", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -49,6 +50,7 @@ class MarketBarMinuteModel(Base):
     vwap: Mapped[float | None] = mapped_column(Float, nullable=True)
     trades: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    is_final: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     source: Mapped[str] = mapped_column(String(32), default="massive", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
